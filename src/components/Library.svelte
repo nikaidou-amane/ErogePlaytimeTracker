@@ -2,20 +2,18 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api';
   import { userErrorMessage } from '../lib/errors';
+  import { loadLibraryFilters, saveLibraryFilters } from '../lib/libraryFilters';
   import { duration, lastPlayed, imageSrc, playStatusLabel, playStatusOptions } from '../lib/time';
-  import type { GameSummary, SortKey } from '../lib/types';
+  import type { GameSummary } from '../lib/types';
   type ViewMode = 'grid' | 'list' | 'table';
   export let refresh = 0;
   export let openGame: (id: number) => void;
+  let { search, brand, playStatus, sort, descending } = loadLibraryFilters();
   let games: GameSummary[] = [],
-    search = '',
-    brand = '',
-    playStatus = '',
-    sort: SortKey = 'last_played',
-    descending = true,
     error = '',
     viewMode: ViewMode = 'grid';
   let loadedKey = '';
+  $: saveLibraryFilters({ search, brand, playStatus, sort, descending });
   $: totalPlaytimeSeconds = games.reduce((total, game) => total + game.total_playtime_seconds, 0);
   $: maximumPlaytimeSeconds = games.reduce(
     (maximum, game) => Math.max(maximum, game.total_playtime_seconds),
@@ -29,13 +27,14 @@
     }
   }
   $: {
-    const key = `${refresh}|${search}|${brand}|${playStatus}|${sort}|${descending}`;
+    const key = JSON.stringify([refresh, search, brand, playStatus, sort, descending]);
     if (key !== loadedKey) {
       loadedKey = key;
       load();
     }
   }
   let brands: string[] = [];
+  $: brandOptions = brand && !brands.includes(brand) ? [brand, ...brands] : brands;
   onMount(() => {
     const saved = localStorage.getItem('library-view-mode');
     if (saved === 'grid' || saved === 'list' || saved === 'table') viewMode = saved;
@@ -73,7 +72,7 @@
     /></label
   ><label
     ><span>ブランド</span><select bind:value={brand}
-      ><option value="">すべてのブランド</option>{#each brands as b}<option>{b}</option
+      ><option value="">すべてのブランド</option>{#each brandOptions as b}<option>{b}</option
         >{/each}</select
     ></label
   ><label
