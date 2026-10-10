@@ -23,6 +23,10 @@
   let loadedKey = '';
   let availableYears = [currentYear];
 
+  $: maximumPlaytimeSeconds = (report?.games ?? []).reduce(
+    (maximum, game) => Math.max(maximum, game.playtime_seconds),
+    0,
+  );
   $: request = periodInput(kind, selectedYear, selectedMonth);
   $: requestKey = `${request.kind}|${request.year ?? ''}|${request.month ?? ''}`;
   $: if (requestKey !== loadedKey) {
@@ -200,9 +204,12 @@
               {@const share = report.summary.total_playtime_seconds
                 ? (game.playtime_seconds / report.summary.total_playtime_seconds) * 100
                 : 0}
+              {@const playtimeShare = maximumPlaytimeSeconds
+                ? (game.playtime_seconds / maximumPlaytimeSeconds) * 100
+                : 0}
               <button
                 class="statistics-game-row"
-                style={`--game-share: ${share}%`}
+                style={`--game-share: ${playtimeShare}%`}
                 onclick={() => openGame(game.game_id)}
                 aria-label={`${game.title}の詳細を開く`}
               >
