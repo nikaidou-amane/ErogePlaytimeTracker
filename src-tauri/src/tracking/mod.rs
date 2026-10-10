@@ -173,17 +173,18 @@ impl TrackingService {
         drop(windowless_since);
         drop(had_windows);
         let mut state = self.inner.state.lock();
-        let actions =
-            state.reconcile_running(&alive, |g| match self.inner.db.start_session(g, &at) {
+        let actions = state.reconcile_running(&alive, &windowed, |g| {
+            match self.inner.db.start_session(g, &at) {
                 Ok(id) => {
                     log::info!("session started game={g} session={id}");
-                    id
+                    Some(id)
                 }
                 Err(e) => {
                     log::error!("session start failed: {e:#}");
-                    -1
+                    None
                 }
-            });
+            }
+        });
         drop(state);
         self.apply(actions, &at, &end_overrides)?;
         let foreground = platform::foreground_pid().map(|pid| {
@@ -238,21 +239,19 @@ impl TrackingService {
         for a in actions {
             match a {
                 Action::SessionStarted { game_id } => {
-                    log::info!("registered process detected game={game_id}")
+                    log::info!("first visible window detected game={game_id}")
                 }
                 Action::SessionEnded {
                     game_id,
                     session_id,
                 } => {
-                    if session_id >= 0 {
-                        self.inner.db.end_session(
-                            session_id,
-                            end_overrides
-                                .get(&game_id)
-                                .map(String::as_str)
-                                .unwrap_or(at),
-                        )?
-                    }
+                    self.inner.db.end_session(
+                        session_id,
+                        end_overrides
+                            .get(&game_id)
+                            .map(String::as_str)
+                            .unwrap_or(at),
+                    )?;
                     self.inner
                         .open_background_intervals
                         .lock()
@@ -263,10 +262,8 @@ impl TrackingService {
                     game_id,
                     session_id,
                 } => {
-                    if session_id >= 0 {
-                        *self.inner.open_focus_interval.lock() =
-                            Some(self.inner.db.start_legacy_focus_interval(session_id, at)?)
-                    }
+                    *self.inner.open_focus_interval.lock() =
+                        Some(self.inner.db.start_legacy_focus_interval(session_id, at)?);
                     log::info!("foreground entered game={game_id}")
                 }
                 Action::FocusEnded {
@@ -282,13 +279,11 @@ impl TrackingService {
                     game_id,
                     session_id,
                 } => {
-                    if session_id >= 0 {
-                        let id = self.inner.db.start_interval(session_id, at)?;
-                        self.inner
-                            .open_background_intervals
-                            .lock()
-                            .insert(session_id, id);
-                    }
+                    let id = self.inner.db.start_interval(session_id, at)?;
+                    self.inner
+                        .open_background_intervals
+                        .lock()
+                        .insert(session_id, id);
                     log::info!("background entered game={game_id}")
                 }
                 Action::BackgroundEnded {
@@ -343,7 +338,9 @@ impl TrackingService {
                     game_id: *g,
                     title: names.get(g).cloned().unwrap_or_default(),
                     session_id: *x,
-                    phase: if s.focused() == Some(*g) {
+                    phase: if x.is_none() {
+                        "starting"
+                    } else if s.focused() == Some(*g) {
                         "foreground"
                     } else if s.background().contains(g) {
                         "background"
@@ -370,17 +367,13 @@ impl TrackingService {
         if observed_game != game {
             return None;
         }
-        state
-            .running()
-            .get(&game)
-            .copied()
-            .map(|session| (game, session))
+        state.session(game).map(|session| (game, session))
     }
     pub fn shutdown(&self) {
         self.inner.stop.store(true, Ordering::Relaxed);
         let at = Utc::now().to_rfc3339();
         let mut s = self.inner.state.lock();
-        let actions = s.reconcile_running(&HashSet::new(), |_| -1);
+        let actions = s.reconcile_running(&HashSet::new(), &HashSet::new(), |_| None);
         drop(s);
         if let Err(e) = self.apply(actions, &at, &HashMap::new()) {
             log::error!("clean shutdown failed: {e:#}")
@@ -400,7 +393,7 @@ fn is_in_game_root(path: &str, roots: Option<&Vec<String>>) -> bool {
 }
 
 #[cfg(test)]
-mod process_association_tests {
+mod tests {
     use super::*;
 
     #[test]
@@ -413,5 +406,58 @@ mod process_association_tests {
             Some(&roots)
         ));
         assert!(!is_in_game_root(r"D:\vn\game-old\main.exe", Some(&roots)));
+    }
+
+    #[test]
+    fn recording_begins_at_the_first_window_and_preserves_short_sessions() {
+        let db = Database::memory().unwrap();
+        let game = db
+            .create_game(
+                &crate::models::CreateGameInput {
+                    title: "Game".into(),
+                    brand: None,
+                    release_date: None,
+                    thumbnail_path: None,
+                    erogamescape_id: None,
+                    source_url: None,
+                    executable_paths: vec![r"D:\vn\game\game.exe".into()],
+                },
+                None,
+            )
+            .unwrap();
+        let mut state = TrackerState::default();
+        let first_window_at = "2026-01-01T00:00:10.000Z";
+        for (alive, windowed, at) in [
+            (true, false, "2026-01-01T00:00:00Z"),
+            (false, false, "2026-01-01T00:00:01Z"),
+            (true, false, "2026-01-01T00:00:04Z"),
+            (true, true, first_window_at),
+            (true, true, "2026-01-01T00:00:10.100Z"),
+        ] {
+            state.reconcile_running(
+                &if alive {
+                    HashSet::from([game])
+                } else {
+                    HashSet::new()
+                },
+                &if windowed {
+                    HashSet::from([game])
+                } else {
+                    HashSet::new()
+                },
+                |game| Some(db.start_session(game, at).unwrap()),
+            );
+            assert_eq!(db.list_sessions(game).unwrap().len(), usize::from(windowed));
+        }
+        let session = state.session(game).unwrap();
+        db.end_session(session, "2026-01-01T00:00:10.200Z").unwrap();
+        let sessions = db.list_sessions(game).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].launched_at, first_window_at);
+        assert_eq!(sessions[0].running_seconds, Some(0));
+        assert_eq!(sessions[0].playtime_seconds, 0);
+        let summary = db.get_game(game).unwrap().summary;
+        assert_eq!(summary.session_count, 1);
+        assert_eq!(summary.total_running_seconds, 0);
     }
 }

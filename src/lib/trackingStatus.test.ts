@@ -6,12 +6,13 @@ const game = (game_id: number, title: string, phase: TrackingStatus['games'][num
   game_id,
   title,
   phase,
-  session_id: game_id + 100,
+  session_id: phase === 'starting' ? null : game_id + 100,
 });
 
 describe('tracking status presentation', () => {
   it('shows a single starting game by title', () => {
     const groups = trackingStatusGroups({ games: [game(1, 'Game A', 'starting')] });
+    expect(groups[0].games[0].session_id).toBeNull();
     expect(trackingStatusText(groups[0])).toBe('Game Aを起動中');
   });
 
