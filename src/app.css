@@ -2306,17 +2306,17 @@ button.primary:disabled:hover {
   outline: 2px solid var(--library-table-accent);
   outline-offset: -2px;
 }
-.library-table th:nth-child(1) {
-  width: 30%;
+.library-table-playtime-column {
+  /* Seven digits, two spaces, four unit glyphs, and horizontal cell padding. */
+  width: calc(8ch + 4ic + 1.3rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 .library-table th:nth-child(2) {
   width: 13%;
 }
 .library-table th:nth-child(3) {
   width: 9%;
-}
-.library-table th:nth-child(4) {
-  width: 13%;
 }
 .library-table th:nth-child(5) {
   width: 16%;
@@ -2440,12 +2440,15 @@ button.primary:disabled:hover {
 }
 .library-table-playtime {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.3rem;
   justify-items: stretch;
 }
 .library-table-playtime strong {
+  overflow: hidden;
   color: var(--library-table-accent);
   font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
 }
 .library-table-playtime-bar {
   display: block;

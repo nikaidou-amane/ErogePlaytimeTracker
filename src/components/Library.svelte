@@ -185,6 +185,15 @@
 {:else}
   <div class="library-table-scroll">
     <table class="library-table">
+      <colgroup>
+        <col />
+        <col />
+        <col />
+        <col class="library-table-playtime-column" />
+        <col />
+        <col />
+        <col />
+      </colgroup>
       <thead>
         <tr>
           <th scope="col">ゲーム</th>
@@ -237,7 +246,9 @@
             >
             <td class="library-table-number">
               <div class="library-table-playtime">
-                <strong>{duration(g.total_playtime_seconds)}</strong>
+                <strong title={duration(g.total_playtime_seconds)}
+                  >{duration(g.total_playtime_seconds)}</strong
+                >
                 <span class="library-table-playtime-bar" aria-hidden="true"
                   ><i style={`width: ${playtimeShare}%`}></i></span
                 >
