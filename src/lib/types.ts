@@ -162,7 +162,7 @@ export interface TrackingStatus {
   games: Array<{
     game_id: number;
     title: string;
-    session_id: number;
+    session_id: number | null;
     phase: 'starting' | 'foreground' | 'background' | 'window_transition';
   }>;
 }

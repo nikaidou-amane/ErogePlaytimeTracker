@@ -232,7 +232,7 @@ pub struct ScreenshotOcrRegion {
 pub struct TrackingGameStatus {
     pub game_id: i64,
     pub title: String,
-    pub session_id: i64,
+    pub session_id: Option<i64>,
     pub phase: String,
 }
 #[derive(Debug, Clone, Serialize)]

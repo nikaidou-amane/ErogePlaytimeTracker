@@ -90,7 +90,7 @@ npm run build
 
 ## Tracking and domain invariants
 
-- 1 launch = 1 `PlaySession`。同じ game に登録された launcher/game executable や関連 child process は game 単位でまとめ、PID 単位の session を作らない。
+- 関連 process の visible top-level window を初めて検出した timestamp で1つの `PlaySession` を開始する。window 出現前は session なしの Starting として監視し、update・backup guard の対象に含める。window を表示せず終了した process は履歴に残さない。同じ game に登録された launcher/game executable や関連 child process は game 単位でまとめ、PID 単位の session を作らない。
 - child process は、登録 executable の descendant かつその game directory 配下にある場合だけ関連付ける。DRM/global helper が session を開き続けないための制約である。
 - playtime の正本は session と background interval の timestamp。`AppSettings.exclude_background_time`（既定 true）が true なら `(session end - launch) - background intervals`、false なら session 全体を query 時に算出する。設定にかかわらず background を記録し、過去履歴・並び順・timestamp累計・統計へ同じ設定を適用する。duration/aggregate を保存 field に変えない。
 - Background は「関連 process と visible top-level window があるが、その game が foreground ではない」期間だけ。window 出現前や消失後を Background にしない。process 終了時は最後の window-loss timestamp で session を閉じる。

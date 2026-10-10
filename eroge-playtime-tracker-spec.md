@@ -178,7 +178,7 @@ Game
 
 ### 4.4 PlaySession
 
-One logical record per game launch.
+One logical record per game launch that presents a visible window.
 
 ```text
 PlaySession
@@ -190,7 +190,7 @@ PlaySession
 - updated_at
 ```
 
-`launched_at` and `exited_at` represent how long the game process/session existed.
+`launched_at` is the timestamp at which a visible top-level window owned by an associated game process is first detected. `exited_at` is the last window-loss timestamp once process exit confirms shutdown. Initialization before the first visible window is not recorded. A process that exits without presenting a visible window creates no session. This start rule applies to new recordings; existing history is preserved.
 
 Do not store total play duration as the source of truth if it can be calculated.
 
@@ -228,7 +228,7 @@ This model intentionally preserves:
 Example:
 
 ```text
-Game launched:       20:00
+Game window shown:  20:00
 Foreground:          20:00 - 20:30
 Browser foreground:  20:30 - 20:40
 Foreground:          20:40 - 21:20
@@ -296,12 +296,12 @@ Do not use high-frequency polling when it is unnecessary.
 
 ### 5.4 Process / launch tracking
 
-The application must know when a registered game starts and exits so that one `PlaySession` corresponds to one launch.
+The application must know when a registered game starts, presents a visible window, and exits so that one `PlaySession` corresponds to one launch that presents a visible window.
 
 Implementation may use Windows process APIs, event subscriptions, or a conservative polling mechanism, but should satisfy these behaviors:
 
-1. Registered game starts.
-2. Create one `PlaySession` with `launched_at`.
+1. Registered game starts. Track it as Starting without creating a session.
+2. On first detection of an associated visible top-level window, create one `PlaySession` with that timestamp as `launched_at`, whether or not the window is foreground. If every associated process exits before this happens, stop tracking without creating history.
 3. Foreground transitions create/end `BackgroundInterval` records.
 4. Registered game exits.
 5. End any open `BackgroundInterval`.
@@ -317,7 +317,7 @@ Multiple registered executables may map to the same game.
 
 Avoid generating duplicate simultaneous sessions when a launcher starts the actual game executable.
 
-For MVP, define one logical session per game when at least one registered executable belonging to that game is alive.
+Define at most one logical session per game while at least one associated process is alive. A session starts only after the first associated visible window is detected.
 
 State should therefore be tracked by **game**, not merely by PID.
 
@@ -325,11 +325,12 @@ Suggested interpretation:
 
 ```text
 0 matching processes alive -> game not running
-1+ matching processes alive -> game running
+1+ matching processes alive, no window observed yet -> Starting, no session
+first associated visible window -> start the session
+later window transitions while a process remains alive -> keep the same session
 ```
 
-Transition from 0 to 1+ starts the session.  
-Transition from 1+ to 0 ends the session.
+Transition from 0 to 1+ starts process tracking; the first visible window starts recording. Transition from 1+ to 0 ends the session, if one was created. A windowless bootstrap may exit and relaunch through any launcher without creating an extra session. Do not combine independent launches based on elapsed time.
 
 ### 5.6 Multiple registered games running
 
@@ -598,6 +599,8 @@ Tracking status changes can be pushed to the frontend using Tauri events where a
 
 Expose tracking status per game with a phase of `starting`, `foreground`, `background`, or `window_transition`. The header may show multiple phase chips at once, ordered foreground, background, starting, then window transition. Show a title for a single game and aggregate multiple games in the same phase by count, retaining their titles in tooltip/detail text.
 
+Starting games remain in both event and polling status responses with `session_id: null` until a session is created. They still block update installation/relaunch and backup operations. Screenshot and OCR operations require a persisted session and the game's current foreground window.
+
 ---
 
 ## 10. Database notes
@@ -691,7 +694,7 @@ registered executable paths
 running games
 running process IDs per game
 active foreground game
-open PlaySession IDs
+optional open PlaySession IDs per running game (none before the first visible window)
 open BackgroundInterval IDs by session
 open legacy FocusInterval ID
 ```
@@ -700,7 +703,7 @@ Database writes should happen at meaningful state transitions rather than on eve
 
 Examples of write points:
 
-- game transitions from not-running -> running;
+- a running game presents its first visible window -> start its session;
 - foreground switches to registered game;
 - foreground leaves registered game;
 - game transitions from running -> not-running.
@@ -872,7 +875,7 @@ The first usable release is complete when all of the following work:
 1. The application runs on Windows 10/11 x64.
 2. A game can be registered manually.
 3. Multiple executable paths can be attached to one game.
-4. Starting a registered game creates one `PlaySession`.
+4. The first associated visible window of a registered game creates one `PlaySession`. A windowless startup stays tracked without creating history.
 5. By default, visible-game background periods do not accumulate play time.
 6. Alt-Tabbing away records background time; whether that time contributes to play time follows the saved setting.
 7. Returning to the game ends the background interval inside the same launch session.
