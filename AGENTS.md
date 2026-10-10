@@ -44,6 +44,13 @@ npm run tauri dev
 - handoff前に、変更した経路だけでなく、同じ原因を共有する類似箇所、alternate entry point、serialized model/default、compatibility、docs、testへの反映漏れを変更内容に応じて確認する。testは変更行の存在ではなく、意図したinvariantと代表経路を検証する。
 - ユーザーの指摘で局所修正の背後に一般的な失敗パターンが判明した場合は、指摘された例だけをpatchせず、要件と根本原因を再整理して適用範囲を見直す。残存リスクや意図的に対象外とした範囲はhandoffで明示する。
 
+## README update policy
+
+- READMEはアプリの概要、導入、基本的な使い方を案内する入口とし、仕様書や全機能の詳細な説明書として扱わない。
+- ユーザーからREADME更新の明示的な指示がない限り、原則としてREADMEを変更しない。機能の実装、docsの整合確認、commit・PR作成・releaseの依頼だけでは、README更新の許可を得たとみなさない。
+- README更新が必要だと判断しても、依頼された実装・要件の遂行と検証を先に完了する。実装前や作業途中にはREADME更新の確認を挟まず、作業結果を報告する最後の段階で確認する。
+- 確認時は更新が必要な理由と最小限の変更案を提示し、ユーザーの許可を得てからREADMEを編集する。返答がないことを許可とみなさない。同じ作業・範囲について既に明示的な指示や許可がある場合は、再確認しない。
+
 ## Git and pull request workflow
 
 - Integration branch は `main`。`main` 上でcommitせず、`origin/main`へ直接pushしない。変更前に1 PR/1 concernのtopic branch（`update/...`、`fix/...`、`docs/...`、`ci/...`等）を作る。
