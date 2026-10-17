@@ -13,6 +13,7 @@ import type {
   ScreenshotOcrResult,
   ScreenshotOcrRegion,
   Metadata,
+  MetadataIdentity,
   Session,
   Settings,
   PlayStatus,
@@ -51,8 +52,7 @@ export const api = {
     brand?: string;
     release_date?: string;
     thumbnail_path?: string;
-    erogamescape_id?: number;
-    source_url?: string;
+    source?: MetadataIdentity;
     executable_paths: string[];
   }) => command<number>('create_game', { input }),
   updateGame: (
@@ -99,11 +99,11 @@ export const api = {
   deleteScreenshot: (id: number) => command<void>('delete_game_screenshot', { id }),
   openScreenshotDirectory: (gameId: number) =>
     command<void>('open_screenshot_directory', { gameId }),
-  fetchMetadata: (value: string) => command<Metadata>('fetch_erogamescape_metadata', { value }),
+  fetchMetadata: (value: string) => command<Metadata>('fetch_game_metadata', { value }),
   importThumbnail: (path: string) => command<string>('import_thumbnail', { path }),
   saveCroppedThumbnail: (pngBase64: string) =>
     command<string>('save_cropped_thumbnail', { pngBase64 }),
-  refreshMetadata: (gameId: number) => command<void>('refresh_game_metadata', { gameId }),
+  refreshMetadata: (gameId: number) => command<string[]>('refresh_game_metadata', { gameId }),
   settings: () => command<Settings>('get_settings'),
   updateSettings: (settings: Settings) => command<void>('update_settings', { settings }),
   skipUpdateVersion: (version: string) => command<void>('skip_update_version', { version }),

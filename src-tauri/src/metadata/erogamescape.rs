@@ -1,4 +1,4 @@
-use super::{GameMetadata, GameMetadataProvider};
+use super::{GameMetadata, GameMetadataProvider, MetadataIdentity};
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use scraper::{Html, Selector};
@@ -16,18 +16,9 @@ impl ErogameScapeProvider {
         })
     }
     fn id(input: &str) -> Result<i64> {
-        if let Ok(id) = input.trim().parse() {
-            return Ok(id);
-        }
-        let url = Url::parse(input).context("有効なErogameScape URLまたはIDを入力してください")?;
-        for (k, v) in url.query_pairs() {
-            if ["game", "game_id", "id"].contains(&k.as_ref()) {
-                return v.parse().context("URLのgame IDが不正です");
-            }
-        }
-        url.path_segments()
-            .and_then(|x| x.filter_map(|s| s.parse().ok()).next_back())
-            .context("URLからgame IDを取得できません")
+        MetadataIdentity::parse(input)?
+            .erogamescape_id()
+            .context("ErogameScapeまたはVNDBのURL・IDを入力してください")
     }
     pub(crate) fn parse(id: i64, url: &str, html: &str) -> Result<GameMetadata> {
         let doc = Html::parse_document(html);
@@ -66,12 +57,12 @@ impl ErogameScapeProvider {
         .and_then(|src| Url::parse(url).ok()?.join(src).ok())
         .map(|x| x.to_string());
         Ok(GameMetadata {
-            erogamescape_id: id,
+            source: MetadataIdentity::ErogameScape(id),
             title,
             brand,
             release_date,
             thumbnail_url,
-            source_url: url.into(),
+            warnings: Vec::new(),
         })
     }
 }
@@ -145,7 +136,7 @@ mod tests {
     fn extracts_id() {
         assert_eq!(ErogameScapeProvider::id("123").unwrap(), 123);
         assert_eq!(
-            ErogameScapeProvider::id("https://x/game.php?game=99").unwrap(),
+            ErogameScapeProvider::id("https://erogamescape.dyndns.org/game.php?game=99").unwrap(),
             99
         );
     }

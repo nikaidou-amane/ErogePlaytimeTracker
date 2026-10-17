@@ -219,7 +219,7 @@ pub fn run() {
             commands::create_game_timestamp,
             commands::update_game_timestamp,
             commands::delete_game_timestamp,
-            commands::fetch_erogamescape_metadata,
+            commands::fetch_game_metadata,
             commands::import_thumbnail,
             commands::save_cropped_thumbnail,
             commands::refresh_game_metadata,

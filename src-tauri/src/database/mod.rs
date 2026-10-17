@@ -1,3 +1,4 @@
+use crate::metadata::MetadataIdentity;
 use crate::models::*;
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Datelike, Duration, Local, LocalResult, NaiveDate, TimeZone, Utc};
@@ -11,7 +12,7 @@ use std::{
 
 #[derive(Clone)]
 pub struct Database(Arc<Mutex<Connection>>);
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 5;
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 6;
 const MIGRATION_1: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
 CREATE TABLE brands(id INTEGER PRIMARY KEY, erogamescape_id INTEGER, name TEXT NOT NULL COLLATE NOCASE UNIQUE);
@@ -62,6 +63,13 @@ CREATE TABLE game_screenshots(
     height INTEGER NOT NULL
 );
 CREATE INDEX idx_game_screenshots_game_time ON game_screenshots(game_id,captured_at);
+"#;
+const MIGRATION_6: &str = r#"
+ALTER TABLE games ADD COLUMN vndb_id TEXT;
+CREATE UNIQUE INDEX idx_games_vndb_id ON games(vndb_id);
+ALTER TABLE games ADD COLUMN metadata_source TEXT
+    CHECK(metadata_source IN ('erogamescape','vndb'));
+UPDATE games SET metadata_source='erogamescape' WHERE erogamescape_id IS NOT NULL;
 "#;
 
 impl Database {
@@ -148,6 +156,30 @@ impl Database {
             tx.execute_batch(MIGRATION_5)?;
             tx.execute("INSERT INTO schema_migrations VALUES(5,?)", [now()])?;
         }
+        let done: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=6)",
+            [],
+            |r| r.get(0),
+        )?;
+        if !done {
+            tx.execute_batch(MIGRATION_6)?;
+            let urls = {
+                let mut query =
+                    tx.prepare("SELECT id,source_url FROM games WHERE source_url IS NOT NULL")?;
+                query
+                    .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            for (id, url) in urls {
+                if let Ok(source) = MetadataIdentity::parse(&url) {
+                    tx.execute(
+                        "UPDATE games SET metadata_source=? WHERE id=?",
+                        params![source.provider(), id],
+                    )?;
+                }
+            }
+            tx.execute("INSERT INTO schema_migrations VALUES(6,?)", [now()])?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -158,8 +190,13 @@ impl Database {
         let mut c = self.0.lock();
         let tx = c.transaction()?;
         let brand = brand_id(&tx, input.brand.as_deref())?;
+        let source = input
+            .source
+            .as_ref()
+            .map(MetadataIdentity::normalized)
+            .transpose()?;
         let n = now();
-        tx.execute("INSERT INTO games(erogamescape_id,title,brand_id,release_date,thumbnail_path,source_url,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",params![input.erogamescape_id,input.title.trim(),brand,input.release_date,thumbnail,input.source_url,n,n])?;
+        tx.execute("INSERT INTO games(erogamescape_id,vndb_id,metadata_source,title,brand_id,release_date,thumbnail_path,source_url,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",params![source.as_ref().and_then(MetadataIdentity::erogamescape_id),source.as_ref().and_then(MetadataIdentity::vndb_id),source.as_ref().map(MetadataIdentity::provider),input.title.trim(),brand,input.release_date,thumbnail,source.as_ref().map(MetadataIdentity::url),n,n])?;
         let id = tx.last_insert_rowid();
         for p in &input.executable_paths {
             insert_executable(&tx, id, p)?
@@ -179,16 +216,14 @@ impl Database {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
-        let erogamescape_id = source_url
-            .and_then(|value| reqwest::Url::parse(value).ok())
-            .and_then(|url| {
-                url.query_pairs()
-                    .find(|(key, _)| key == "game")
-                    .and_then(|(_, value)| value.parse::<i64>().ok())
-            });
+        let source = source_url.and_then(|value| MetadataIdentity::parse(value).ok());
+        let source_url = source
+            .as_ref()
+            .map(MetadataIdentity::url)
+            .or_else(|| source_url.map(str::to_owned));
         tx.execute(
-            "UPDATE games SET title=?,brand_id=?,release_date=?,source_url=?,erogamescape_id=COALESCE(?,erogamescape_id),updated_at=? WHERE id=?",
-            params![input.title.trim(), brand, input.release_date, source_url, erogamescape_id, now(), id],
+            "UPDATE games SET title=?,brand_id=?,release_date=?,source_url=?,erogamescape_id=COALESCE(?,erogamescape_id),vndb_id=COALESCE(?,vndb_id),metadata_source=?,updated_at=? WHERE id=?",
+            params![input.title.trim(), brand, input.release_date, source_url, source.as_ref().and_then(MetadataIdentity::erogamescape_id),source.as_ref().and_then(MetadataIdentity::vndb_id),source.as_ref().map(MetadataIdentity::provider),now(), id],
         )?;
         tx.commit()?;
         Ok(())
@@ -304,10 +339,10 @@ impl Database {
             )
             .optional()?
             .context("ゲームが見つかりません")?;
-        let (eid, url) = c.query_row(
-            "SELECT erogamescape_id,source_url FROM games WHERE id=?",
+        let (eid, vid, provider, url) = c.query_row(
+            "SELECT erogamescape_id,vndb_id,metadata_source,source_url FROM games WHERE id=?",
             [id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )?;
         let mut q=c.prepare("SELECT id,game_id,path,file_name,created_at FROM game_executables WHERE game_id=? ORDER BY id")?;
         let executables = q
@@ -324,6 +359,8 @@ impl Database {
         Ok(GameDetail {
             summary,
             erogamescape_id: eid,
+            vndb_id: vid,
+            metadata_source: provider,
             source_url: url,
             executables,
         })
@@ -886,12 +923,36 @@ impl Database {
         tx.commit()?;
         Ok(path)
     }
-    pub fn metadata_identity(&self, id: i64) -> Result<(Option<i64>, Option<String>)> {
-        Ok(self.0.lock().query_row(
-            "SELECT erogamescape_id,source_url FROM games WHERE id=?",
-            [id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )?)
+    pub fn metadata_identity(&self, id: i64) -> Result<MetadataIdentity> {
+        let (provider, eid, vid, url) = self
+            .0
+            .lock()
+            .query_row(
+                "SELECT metadata_source,erogamescape_id,vndb_id,source_url FROM games WHERE id=?",
+                [id],
+                |r| {
+                    Ok((
+                        r.get::<_, Option<String>>(0)?,
+                        r.get::<_, Option<i64>>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                    ))
+                },
+            )
+            .optional()?
+            .context("ゲームが見つかりません")?;
+        let source = url
+            .as_deref()
+            .and_then(|url| MetadataIdentity::parse(url).ok())
+            .filter(|source| Some(source.provider()) == provider.as_deref())
+            .or_else(|| match provider.as_deref() {
+                Some("erogamescape") => eid.map(MetadataIdentity::ErogameScape),
+                Some("vndb") => vid.map(MetadataIdentity::Vndb),
+                _ => None,
+            });
+        source
+            .context("情報取得元のURL・IDがありません")?
+            .normalized()
     }
     pub fn apply_metadata(
         &self,
@@ -902,7 +963,8 @@ impl Database {
         let mut c = self.0.lock();
         let tx = c.transaction()?;
         let brand = brand_id(&tx, m.brand.as_deref())?;
-        tx.execute("UPDATE games SET erogamescape_id=?,title=?,brand_id=?,release_date=?,thumbnail_path=COALESCE(?,thumbnail_path),source_url=?,updated_at=? WHERE id=?",params![m.erogamescape_id,m.title,brand,m.release_date,thumb,m.source_url,now(),id])?;
+        let source = m.source.normalized()?;
+        tx.execute("UPDATE games SET erogamescape_id=COALESCE(?,erogamescape_id),vndb_id=COALESCE(?,vndb_id),metadata_source=?,title=?,brand_id=?,release_date=?,thumbnail_path=COALESCE(?,thumbnail_path),source_url=?,updated_at=? WHERE id=?",params![source.erogamescape_id(),source.vndb_id(),source.provider(),m.title,brand,m.release_date,thumb,source.url(),now(),id])?;
         tx.commit()?;
         Ok(())
     }
@@ -1512,8 +1574,7 @@ mod tests {
                 brand: Some("B".into()),
                 release_date: None,
                 thumbnail_path: None,
-                erogamescape_id: None,
-                source_url: None,
+                source: None,
                 executable_paths: vec![r#"C:\G\a.exe"#.into(), r#"C:\G\launcher.exe"#.into()],
             },
             None,
@@ -1556,8 +1617,7 @@ mod tests {
                     brand: None,
                     release_date: None,
                     thumbnail_path: None,
-                    erogamescape_id: None,
-                    source_url: None,
+                    source: None,
                     executable_paths: vec![],
                 },
                 None,
@@ -1713,12 +1773,12 @@ mod tests {
         d.update_game_thumbnail(g, Some(r#"C:\thumbnails\manual.png"#))
             .unwrap();
         let metadata = crate::metadata::GameMetadata {
-            erogamescape_id: 42,
+            source: MetadataIdentity::ErogameScape(42),
             title: "Updated".into(),
             brand: Some("Updated Brand".into()),
             release_date: Some("2026-08-29".into()),
             thumbnail_url: Some("https://example.test/cover.jpg".into()),
-            source_url: "https://example.test/game.php?game=42".into(),
+            warnings: Vec::new(),
         };
 
         d.apply_metadata(g, &metadata, Some(r#"C:\thumbnails\erogamescape.jpg"#))
@@ -1728,6 +1788,186 @@ mod tests {
             d.get_game(g).unwrap().summary.thumbnail_path.as_deref(),
             Some(r#"C:\thumbnails\erogamescape.jpg"#)
         );
+    }
+    #[test]
+    fn metadata_sources_round_trip_switch_and_preserve_history_and_thumbnail() {
+        let d = Database::memory().unwrap();
+        let input: CreateGameInput = serde_json::from_value(serde_json::json!({
+            "title": "VNDB game", "brand": "First brand", "source": {"provider": "vndb", "id": "v00548"}
+        })).unwrap();
+        let id = d
+            .create_game(&input, Some(r#"C:\thumbnails\manual.png"#))
+            .unwrap();
+        let game = d.get_game(id).unwrap();
+        assert_eq!(game.vndb_id.as_deref(), Some("v548"));
+        assert_eq!(game.metadata_source.as_deref(), Some("vndb"));
+        assert_eq!(game.source_url.as_deref(), Some("https://vndb.org/v548"));
+        assert_eq!(
+            d.metadata_identity(id).unwrap(),
+            MetadataIdentity::Vndb("v548".into())
+        );
+        let session = d
+            .manual_session(id, "2026-01-01T00:00:00Z", "2026-01-01T01:00:00Z")
+            .unwrap();
+        d.create_interval(session, "2026-01-01T00:10:00Z", "2026-01-01T00:25:00Z")
+            .unwrap();
+        let sessions = serde_json::to_string(&d.list_sessions(id).unwrap()).unwrap();
+        let mut edit = UpdateGameInput {
+            title: "Edited".into(),
+            brand: None,
+            release_date: None,
+            source_url: Some(MetadataIdentity::ErogameScape(42).url()),
+        };
+        d.update_game(id, &edit).unwrap();
+        assert_eq!(
+            d.metadata_identity(id).unwrap(),
+            MetadataIdentity::ErogameScape(42)
+        );
+        assert_eq!(d.get_game(id).unwrap().vndb_id.as_deref(), Some("v548"));
+        let m = crate::metadata::GameMetadata {
+            source: MetadataIdentity::Vndb("v548".into()),
+            title: "Refreshed".into(),
+            brand: Some("First brand".into()),
+            release_date: None,
+            thumbnail_url: None,
+            warnings: Vec::new(),
+        };
+        d.apply_metadata(id, &m, None).unwrap();
+        let game = d.get_game(id).unwrap();
+        assert_eq!(game.summary.title, "Refreshed");
+        assert_eq!(game.erogamescape_id, Some(42));
+        assert_eq!(game.metadata_source.as_deref(), Some("vndb"));
+        assert_eq!(
+            game.summary.thumbnail_path.as_deref(),
+            Some(r#"C:\thumbnails\manual.png"#)
+        );
+        assert_eq!(
+            serde_json::to_string(&d.list_sessions(id).unwrap()).unwrap(),
+            sessions
+        );
+        for url in [Some("https://example.test/game.php?game=999".into()), None] {
+            edit.source_url = url;
+            d.update_game(id, &edit).unwrap();
+            assert!(d.metadata_identity(id).is_err());
+            assert_eq!(d.get_game(id).unwrap().erogamescape_id, Some(42));
+        }
+    }
+
+    #[test]
+    fn duplicate_vndb_ids_roll_back_create_edit_and_metadata_updates() {
+        let d = Database::memory().unwrap();
+        let input = CreateGameInput {
+            title: "VNDB game".into(),
+            brand: None,
+            release_date: None,
+            thumbnail_path: None,
+            source: Some(MetadataIdentity::Vndb("v548".into())),
+            executable_paths: vec![],
+        };
+        d.create_game(&input, None).unwrap();
+        assert!(d.create_game(&input, None).is_err());
+        assert_eq!(
+            d.list_games("", None, None, "title", false).unwrap().len(),
+            1
+        );
+        let other = game(&d);
+        let edit = UpdateGameInput {
+            title: "Should roll back".into(),
+            brand: Some("Should roll back".into()),
+            release_date: None,
+            source_url: Some("https://vndb.org/v548".into()),
+        };
+        assert!(d.update_game(other, &edit).is_err());
+        let metadata = crate::metadata::GameMetadata {
+            source: MetadataIdentity::Vndb("v548".into()),
+            title: "Should roll back".into(),
+            brand: edit.brand,
+            release_date: None,
+            thumbnail_url: None,
+            warnings: vec![],
+        };
+        assert!(d.apply_metadata(other, &metadata, None).is_err());
+        assert_eq!(d.get_game(other).unwrap().summary.title, "A");
+        assert!(d.get_game(other).unwrap().metadata_source.is_none());
+        let brands: i64 =
+            d.0.lock()
+                .query_row("SELECT COUNT(*) FROM brands", [], |r| r.get(0))
+                .unwrap();
+        assert_eq!(brands, 1);
+    }
+
+    #[test]
+    fn migration_6_preserves_legacy_sources_and_playtime_in_both_modes() {
+        let c = Connection::open_in_memory().unwrap();
+        c.pragma_update(None, "foreign_keys", "ON").unwrap();
+        for (version, sql) in [
+            MIGRATION_1,
+            MIGRATION_2,
+            MIGRATION_3,
+            MIGRATION_4,
+            MIGRATION_5,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            c.execute_batch(sql).unwrap();
+            c.execute(
+                "INSERT INTO schema_migrations VALUES(?,?)",
+                params![version as i64 + 1, now()],
+            )
+            .unwrap();
+        }
+        for (id, eid, url) in [
+            (1, Some(42), None),
+            (
+                2,
+                None,
+                Some("https://erogamescape.dyndns.org/~ap2/ero/toukei_kaiseki/game.php?game=99"),
+            ),
+            (3, None, None),
+            (4, None, Some("https://vndb.org/v548")),
+        ] {
+            c.execute("INSERT INTO games(id,title,erogamescape_id,source_url,created_at,updated_at) VALUES(?,?,?,?,?,?)", params![id, format!("Game {id}"), eid, url, now(), now()]).unwrap();
+        }
+        let d = Database(Arc::new(Mutex::new(c)));
+        let session = d
+            .manual_session(1, "2026-01-01T00:00:00Z", "2026-01-01T01:00:00Z")
+            .unwrap();
+        d.create_interval(session, "2026-01-01T00:10:00Z", "2026-01-01T00:25:00Z")
+            .unwrap();
+        d.create_timestamp(1, "Point", "2026-01-01T00:30:00Z")
+            .unwrap();
+        d.migrate().unwrap();
+        d.migrate().unwrap();
+        assert_eq!(
+            d.metadata_identity(1).unwrap(),
+            MetadataIdentity::ErogameScape(42)
+        );
+        assert_eq!(
+            d.metadata_identity(2).unwrap(),
+            MetadataIdentity::ErogameScape(99)
+        );
+        assert!(d.metadata_identity(3).is_err());
+        assert_eq!(
+            d.metadata_identity(4).unwrap(),
+            MetadataIdentity::Vndb("v548".into())
+        );
+        assert!(d.get_game(3).unwrap().source_url.is_none());
+        for exclude in [true, false, true] {
+            set_background_exclusion(&d, exclude);
+            let game = d.get_game(1).unwrap();
+            assert_eq!(
+                game.summary.total_playtime_seconds,
+                if exclude { 2700 } else { 3600 }
+            );
+            assert_eq!(d.list_sessions(1).unwrap()[0].background_seconds, 900);
+            assert_eq!(
+                d.timestamps(1).unwrap()[0].playtime_seconds,
+                if exclude { 900 } else { 1800 }
+            );
+            let focus: i64 = d.0.lock().query_row("SELECT SUM(strftime('%s',ended_at)-strftime('%s',started_at)) FROM focus_intervals WHERE play_session_id=?", [session], |r| r.get(0)).unwrap();
+            assert_eq!(focus, 2700);
+        }
     }
     #[test]
     fn rejects_overlap_and_outside() {
@@ -1780,8 +2020,7 @@ mod tests {
                     brand: None,
                     release_date: None,
                     thumbnail_path: None,
-                    erogamescape_id: None,
-                    source_url: None,
+                    source: None,
                     executable_paths: vec![],
                 },
                 None,
@@ -2070,8 +2309,7 @@ mod tests {
                 brand: Some("Another Brand".into()),
                 release_date: None,
                 thumbnail_path: None,
-                erogamescape_id: None,
-                source_url: None,
+                source: None,
                 executable_paths: vec![],
             },
             None,
@@ -2097,8 +2335,7 @@ mod tests {
                     brand: Some("Temporary Brand".into()),
                     release_date: None,
                     thumbnail_path: None,
-                    erogamescape_id: None,
-                    source_url: None,
+                    source: None,
                     executable_paths: vec![],
                 },
                 None,
@@ -2277,8 +2514,7 @@ mod tests {
                     brand: None,
                     release_date: None,
                     thumbnail_path: None,
-                    erogamescape_id: None,
-                    source_url: None,
+                    source: None,
                     executable_paths: vec![r#"C:\Other\other.exe"#.into()],
                 },
                 None,
@@ -2334,8 +2570,7 @@ mod tests {
                     brand: Some("B".into()),
                     release_date: None,
                     thumbnail_path: None,
-                    erogamescape_id: None,
-                    source_url: None,
+                    source: None,
                     executable_paths: vec![],
                 },
                 None,

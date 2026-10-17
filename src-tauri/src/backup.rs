@@ -1193,8 +1193,7 @@ mod tests {
                     brand: Some("Brand".into()),
                     release_date: None,
                     thumbnail_path: None,
-                    erogamescape_id: None,
-                    source_url: None,
+                    source: None,
                     executable_paths: vec![
                         parent.join("missing.exe").to_string_lossy().into_owned(),
                     ],
@@ -1281,7 +1280,10 @@ mod tests {
         connection
             .execute_batch(
                 "DROP TABLE game_screenshots;
-                 DELETE FROM schema_migrations WHERE version=5;",
+                 DROP INDEX idx_games_vndb_id;
+                 ALTER TABLE games DROP COLUMN vndb_id;
+                 ALTER TABLE games DROP COLUMN metadata_source;
+                 DELETE FROM schema_migrations WHERE version>=5;",
             )
             .unwrap();
         connection
@@ -1318,6 +1320,17 @@ mod tests {
         use crate::update_notice::UpdateNotices;
         let temporary = TestDirectory::new("backup-round-trip");
         let (source_root, source_database, game_id) = create_data_root(&temporary.0, "source");
+        source_database
+            .update_game(
+                game_id,
+                &crate::models::UpdateGameInput {
+                    title: "Game from source".into(),
+                    brand: Some("Brand".into()),
+                    release_date: None,
+                    source_url: Some("https://vndb.org/v548".into()),
+                },
+            )
+            .unwrap();
         UpdateNotices::open(&source_root, "0.1.10".parse().unwrap(), false).unwrap();
         source_database
             .set_setting(
@@ -1392,6 +1405,12 @@ mod tests {
         let imported = Database::open(&destination_root.join(DATABASE_PATH)).unwrap();
         let game = imported.get_game(game_id).unwrap();
         assert_eq!(game.summary.title, "Game from source");
+        assert_eq!(game.vndb_id.as_deref(), Some("v548"));
+        assert_eq!(game.metadata_source.as_deref(), Some("vndb"));
+        assert_eq!(
+            imported.metadata_identity(game_id).unwrap().url(),
+            "https://vndb.org/v548"
+        );
         let thumbnail = PathBuf::from(game.summary.thumbnail_path.unwrap());
         assert!(thumbnail.starts_with(destination_root.join("thumbnails")));
         assert_eq!(fs::read(thumbnail).unwrap(), b"thumbnail");

@@ -1,8 +1,4 @@
-use crate::{
-    AppState,
-    metadata::{ErogameScapeProvider, GameMetadataProvider},
-    models::*,
-};
+use crate::{AppState, models::*};
 use tauri::{State, ipc::Channel};
 type Cmd<T> = Result<T, String>;
 
@@ -29,6 +25,9 @@ fn known_error_message(detail: &str) -> Option<&str> {
     if detail.contains("UNIQUE constraint failed: games.erogamescape_id") {
         return Some("このErogameScape IDのゲームはすでに登録されています。");
     }
+    if detail.contains("UNIQUE constraint failed: games.vndb_id") {
+        return Some("このVNDB IDのゲームはすでに登録されています。");
+    }
     if detail.starts_with("未対応の修飾キーです:") || detail.starts_with("未対応のキーです:")
     {
         return Some("ショートカットキーの形式が正しくありません。");
@@ -54,10 +53,13 @@ fn known_error_message(detail: &str) -> Option<&str> {
         "タイトルは必須です",
         "ゲームが見つかりません",
         "起動する実行ファイルが登録されていません",
-        "ErogameScape ID/URLがありません",
-        "有効なErogameScape URLまたはIDを入力してください",
-        "URLのgame IDが不正です",
-        "URLからgame IDを取得できません",
+        "情報取得元のURL・IDがありません",
+        "ErogameScapeまたはVNDBのURL・IDを入力してください",
+        "VNDBのゲームが見つかりません",
+        "VNDBへ接続できません",
+        "VNDBがエラーを返しました",
+        "VNDBの応答を解析できません",
+        "VNDBの取得回数制限に達しました。しばらく待ってからお試しください。",
         "サムネイル画像が見つかりません",
         "サムネイル画像を読み取れません",
         "トリミング画像がPNG形式ではありません",
@@ -352,23 +354,25 @@ pub fn delete_game_timestamp(state: State<AppState>, id: i64) -> Cmd<()> {
     state.db.delete_timestamp(id).map_err(err)
 }
 #[tauri::command]
-pub async fn fetch_erogamescape_metadata(
+pub async fn fetch_game_metadata(
     state: State<'_, AppState>,
     value: String,
 ) -> Cmd<MetadataPreview> {
-    let metadata = ErogameScapeProvider::new()
-        .map_err(err)?
-        .fetch_game(&value)
-        .await
-        .map_err(|e| {
-            log::warn!("metadata fetch/parse failed: {e:#}");
-            err(e)
-        })?;
+    metadata_preview(&state, &value).await.map_err(err)
+}
+
+async fn metadata_preview(state: &AppState, value: &str) -> anyhow::Result<MetadataPreview> {
+    let mut metadata = crate::metadata::fetch_game(value).await.inspect_err(|e| {
+        log::warn!("metadata fetch/parse failed: {e:#}");
+    })?;
     let thumbnail_path = if let Some(url) = &metadata.thumbnail_url {
         match crate::thumbnail::download(&state.http, url, &state.thumbnails).await {
             Ok(path) => Some(path.to_string_lossy().to_string()),
             Err(error) => {
                 log::warn!("thumbnail preview download failed: {error:#}");
+                metadata.warnings.push(
+                    "サムネイルを取得できませんでした。画像以外の情報は利用できます。".into(),
+                );
                 None
             }
         }
@@ -395,30 +399,18 @@ pub fn save_cropped_thumbnail(state: State<AppState>, png_base64: String) -> Cmd
         .map_err(err)
 }
 #[tauri::command]
-pub async fn refresh_game_metadata(state: State<'_, AppState>, game_id: i64) -> Cmd<()> {
-    let (id, url) = state.db.metadata_identity(game_id).map_err(err)?;
-    let input = url
-        .or_else(|| id.map(|x| x.to_string()))
-        .ok_or_else(|| user_error("ErogameScape ID/URLがありません"))?;
-    let m = ErogameScapeProvider::new()
-        .map_err(err)?
-        .fetch_game(&input)
-        .await
-        .map_err(err)?;
-    let thumb = if let Some(url) = &m.thumbnail_url {
-        Some(
-            crate::thumbnail::download(&state.http, url, &state.thumbnails)
-                .await
-                .map(|path| path.to_string_lossy().to_string())
-                .map_err(err)?,
-        )
-    } else {
-        None
-    };
+pub async fn refresh_game_metadata(state: State<'_, AppState>, game_id: i64) -> Cmd<Vec<String>> {
+    let source = state.db.metadata_identity(game_id).map_err(err)?;
+    let preview = metadata_preview(&state, &source.url()).await.map_err(err)?;
     state
         .db
-        .apply_metadata(game_id, &m, thumb.as_deref())
-        .map_err(err)
+        .apply_metadata(
+            game_id,
+            &preview.metadata,
+            preview.thumbnail_path.as_deref(),
+        )
+        .map_err(err)?;
+    Ok(preview.metadata.warnings)
 }
 #[tauri::command]
 pub fn get_settings(state: State<AppState>) -> Cmd<AppSettings> {
@@ -763,6 +755,10 @@ mod tests {
         assert_eq!(
             err("UNIQUE constraint failed: games.erogamescape_id"),
             user_error("このErogameScape IDのゲームはすでに登録されています。")
+        );
+        assert_eq!(
+            err("UNIQUE constraint failed: games.vndb_id"),
+            user_error("このVNDB IDのゲームはすでに登録されています。")
         );
         assert_eq!(
             err("区間が既存の区間と重複しています"),

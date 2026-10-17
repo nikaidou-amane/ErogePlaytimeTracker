@@ -10,6 +10,7 @@ const SUPPORTED_EXTENSIONS: [&str; 4] = ["jpg", "jpeg", "png", "webp"];
 pub async fn download(client: &reqwest::Client, url: &str, dir: &Path) -> Result<PathBuf> {
     let bytes = client
         .get(url)
+        .timeout(std::time::Duration::from_secs(15))
         .send()
         .await?
         .error_for_status()?
