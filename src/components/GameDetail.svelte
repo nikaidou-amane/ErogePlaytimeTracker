@@ -8,6 +8,7 @@
   import HistoryDataRow from './HistoryDataRow.svelte';
   import PlaytimeTrend from './PlaytimeTrend.svelte';
   import { api } from '../lib/api';
+  import { metadataSourceLabel } from '../lib/metadata';
   import { backgroundIntervalDescription } from '../lib/playtime';
   import { userErrorMessage } from '../lib/errors';
   import { formatDateKey } from '../lib/statistics';
@@ -603,9 +604,14 @@
     refreshingMeta = true;
     pageError = '';
     try {
-      await api.refreshMetadata(gameId);
+      const warnings = await api.refreshMetadata(gameId);
       await load(true);
-      showToast('ErogameScapeからゲーム情報を更新しました');
+      showToast(
+        [
+          `${metadataSourceLabel(game?.metadata_source)}からゲーム情報を更新しました`,
+          ...warnings,
+        ].join(' '),
+      );
     } catch (e) {
       pageError = userErrorMessage(
         e,
@@ -987,10 +993,16 @@
       <div class="panel-heading">
         <h2>ゲーム情報</h2>
         {#if !editingGame}<div class="game-info-heading-actions">
-            <button class="metadata-refresh" onclick={refreshMeta} disabled={refreshingMeta}
+            <button
+              class="metadata-refresh"
+              onclick={refreshMeta}
+              disabled={refreshingMeta || !game.metadata_source}
+              title={game.metadata_source ? undefined : '編集から情報取得元URLを設定してください'}
               >{#if refreshingMeta}<span class="spinner" aria-hidden="true"
-                ></span>取得中…{:else}ErogameScapeから情報を更新{/if}</button
-            ><button onclick={beginGameEdit}>編集</button>
+                ></span>取得中…{:else}{metadataSourceLabel(
+                  game.metadata_source,
+                )}から情報を更新{/if}</button
+            ><button onclick={beginGameEdit} disabled={refreshingMeta}>編集</button>
           </div>{/if}
       </div>
       {#if editingGame}<div class="game-info-form">
@@ -1015,10 +1027,10 @@
               </p>{/if}
           </div>
           <label
-            >ErogameScape URL<input
+            >情報取得元URL<input
               type="url"
               bind:value={editSourceUrl}
-              placeholder="https://erogamescape.dyndns.org/…"
+              placeholder="ErogameScape または VNDB のゲームURL"
             /></label
           >
           <div class="actions">
@@ -1055,7 +1067,7 @@
             </dd>
           </div>
           <div>
-            <dt>ErogameScape URL</dt>
+            <dt>情報取得元URL</dt>
             <dd>
               {#if game.source_url}<button
                   class="external-link"

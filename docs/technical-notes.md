@@ -91,11 +91,17 @@ headerのtracking statusはgame単位のphase（起動中、プレイ中、Backg
 
 tracking state、background記録、session境界、最終プレイの判定は変更しません。backgroundの合計値や区間編集も計算設定と独立して維持します。UIでは「除外時間／区間」ではなく「バックグラウンド時間／区間」と呼び、現在の計算方法を明示します。backupには設定と区間の両方を含め、復元後も計算設定を切り替えられます。
 
-## ErogameScape連携
+## ErogameScape / VNDB連携
 
-game IDまたはgame URLからtitle、brand、発売日、package imageを取得します。HTML selectorは`GameMetadataProvider`と`ErogameScapeProvider`内に隔離されています。thumbnailはcacheされ、networkやparser failureはtracking loopへ影響しません。siteへの自動accessは明示的な取得・更新操作時だけです。
+1つの入力欄へgame URLまたはIDを指定し、title、brand、発売日、package imageを取得します。数字のみはErogameScape、`v548`形式またはVNDBの作品URLはVNDBとしてRust側で判定します。`GameMetadataProvider`の下でErogameScapeはHTMLを解析し、VNDBは認証不要の[公式Kana API](https://api.vndb.org/kana)を利用します。
 
-本appはErogameScapeおよび各game makerの公式appではありません。取得したpackage imageは利用者のPC内にのみcacheし、repositoryやinstallerには同梱しません。各画像とgame情報に関する権利は、それぞれの権利者に帰属します。site運営者または権利者から要請があった場合は、連携方法を見直します。
+VNDBのtitleは日本語、原語のmain title、表示titleの順で選び、brandはAPIが返す最初のdeveloperのoriginal name（なければname）を採用します。発売日は年月日が揃う場合だけ既存のdate欄へ反映し、年のみ・年月のみ・未定の場合は未設定と理由を表示します。画像はAPIの`image.url`から取得するため、Webページの表示確認ボタンやCookieには依存しません。
+
+thumbnailはlocalにcacheし、画像取得失敗は警告として表示します。画像なしでも情報を登録・更新でき、更新時の既存thumbnailは取得失敗や画像なしの場合に保持します。networkやparser failureはtracking loopへ影響せず、siteへのaccessは明示的な取得・更新操作時だけです。
+
+schema migration 6で`games.vndb_id`（`v548`形式、unique）と`games.metadata_source`を追加します。両siteのIDを保持可能で、再取得は選択中の取得元から行います。詳細画面の情報取得元URLを編集すると取得元と対応IDを更新し、URLを消すと再取得を解除します。旧DBのID・URLから取得元を移行し、backupにも保存します。
+
+本appはErogameScape、VNDBおよび各game makerの公式appではありません。取得したpackage imageは利用者のPC内にのみcacheし、repositoryやinstallerには同梱しません。各画像とgame情報に関する権利は、それぞれの権利者に帰属します。site運営者または権利者から要請があった場合は、連携方法を見直します。
 
 ## Release
 

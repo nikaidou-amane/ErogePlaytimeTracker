@@ -4,6 +4,7 @@
   import DateTimeSelect from './DateTimeSelect.svelte';
   import ThumbnailCropper from './ThumbnailCropper.svelte';
   import { api } from '../lib/api';
+  import { metadataSourceLabel } from '../lib/metadata';
   import { userErrorMessage } from '../lib/errors';
   import { imageSrc } from '../lib/time';
   import type { Metadata } from '../lib/types';
@@ -47,7 +48,7 @@
       releaseDateComplete = true;
       releaseDateError = '';
       thumbnail_path = metadata.thumbnail_path ?? '';
-      showToast('ErogameScapeからゲーム情報を取得しました');
+      showToast(`${metadataSourceLabel(metadata.source.provider)}からゲーム情報を取得しました`);
     } catch (e) {
       error = userErrorMessage(
         e,
@@ -72,8 +73,7 @@
         brand: brand || undefined,
         release_date: release_date || undefined,
         thumbnail_path: thumbnail_path || undefined,
-        erogamescape_id: metadata?.erogamescape_id,
-        source_url: metadata?.source_url,
+        source: metadata?.source,
         executable_paths: paths
           .split('\n')
           .map((x) => x.trim())
@@ -131,11 +131,11 @@
 <section class="panel form">
   <h1>ゲーム追加</h1>
   <label
-    >ErogameScape URL / game ID
+    >ErogameScape / VNDB URL・ID
     <div class="row">
       <input
         bind:value={lookup}
-        placeholder="https://erogamescape.dyndns.org/...game=1234 または 1234"
+        placeholder="サイトのURL、1234（ErogameScape）、v548（VNDB）"
       /><button
         class="metadata-lookup"
         disabled={fetchingMeta || saving || !lookup.trim()}
@@ -146,6 +146,9 @@
     </div></label
   >
   <p class="hint">取得できない場合も下の項目から手動登録できます。</p>
+  {#if metadata?.warnings.length}<p class="hint" role="status">
+      {metadata.warnings.join(' ')}
+    </p>{/if}
   <label>タイトル<input bind:value={title} /></label><label
     >ブランド<input bind:value={brand} /></label
   >

@@ -29,6 +29,8 @@ export interface Executable {
 }
 export interface GameDetail extends GameSummary {
   erogamescape_id: number | null;
+  vndb_id: string | null;
+  metadata_source: MetadataProvider | null;
   source_url: string | null;
   executables: Executable[];
 }
@@ -138,14 +140,17 @@ export interface ScreenshotOcrRegion {
   width: number;
   height: number;
 }
+export type MetadataProvider = 'erogamescape' | 'vndb';
+export type MetadataIdentity =
+  { provider: 'erogamescape'; id: number } | { provider: 'vndb'; id: string };
 export interface Metadata {
-  erogamescape_id: number;
+  source: MetadataIdentity;
   title: string;
   brand: string | null;
   release_date: string | null;
   thumbnail_url: string | null;
   thumbnail_path: string | null;
-  source_url: string;
+  warnings: string[];
 }
 export type Theme = 'dark' | 'light' | 'pink' | 'blue';
 export interface Settings {

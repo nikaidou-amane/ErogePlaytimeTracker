@@ -27,6 +27,8 @@ pub struct GameDetail {
     #[serde(flatten)]
     pub summary: GameSummary,
     pub erogamescape_id: Option<i64>,
+    pub vndb_id: Option<String>,
+    pub metadata_source: Option<String>,
     pub source_url: Option<String>,
     pub executables: Vec<Executable>,
 }
@@ -136,8 +138,7 @@ pub struct CreateGameInput {
     pub brand: Option<String>,
     pub release_date: Option<String>,
     pub thumbnail_path: Option<String>,
-    pub erogamescape_id: Option<i64>,
-    pub source_url: Option<String>,
+    pub source: Option<crate::metadata::MetadataIdentity>,
     #[serde(default)]
     pub executable_paths: Vec<String>,
 }

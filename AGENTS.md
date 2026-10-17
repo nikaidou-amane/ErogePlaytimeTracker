@@ -16,7 +16,7 @@
 - `src-tauri/src/commands.rs`: task-oriented な Tauri boundary。filesystem、shell、autostart 等の native 操作もここを通す。
 - `src-tauri/src/database/mod.rs`: schema migration、query、validation、集計を含む現在の persistence layer。別の migrations directory/repository layer はない。
 - `src-tauri/src/tracking/`: pure state transition (`state.rs`)、Windows process/window adapter (`platform.rs`)、DB/event との orchestration (`mod.rs`)。
-- `src-tauri/src/metadata/`: `GameMetadataProvider` と ErogameScape scraper。selector は provider の外へ漏らさない。
+- `src-tauri/src/metadata/`: `GameMetadataProvider`、ErogameScape scraper、VNDB API adapter。selector/API response の詳細は provider の外へ漏らさない。
 - `src-tauri/src/screenshot.rs`: global hotkey と foreground game client-area capture。
 - `.github/workflows/ci.yml`: stacked PRを含むpull requestのcommit policy、frontend/Rust、license checks。`release.yml`は`v*` tagのaudit/build/publish専用。
 
@@ -131,4 +131,4 @@ npm run build
 - installer は `npm run tauri build` で NSIS のみ。output は `src-tauri/target/release/bundle/nsis/`。WebView2 は download bootstrapper、updater artifacts も生成する。
 - release version は `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`src-tauri/tauri.conf.json` の5箇所を一致させる。`v<version>` tag と一致しないと workflow が失敗する。
 - `TAURI_SIGNING_PRIVATE_KEY` は GitHub Actions の updater signing secret。値や local signing key を repository、logs、documentation に書かない。
-- core tracking は local-only。network access は明示的な ErogameScape metadata/thumbnail 操作と updater に限定し、play history や screenshots を upload する処理を追加しない。
+- core tracking は local-only。network access は明示的な ErogameScape/VNDB metadata/thumbnail 操作と updater に限定し、play history や screenshots を upload する処理を追加しない。

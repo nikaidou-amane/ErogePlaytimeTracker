@@ -3,7 +3,7 @@
 > Working title: `ErogePlaytimeTracker`  
 > Target: Windows 10 / 11 x64  
 > Status: Initial implementation specification  
-> Primary use case: Record play time for visual novels / eroge per title, with ErogameScape metadata.
+> Primary use case: Record play time for visual novels / eroge per title, with ErogameScape or VNDB metadata.
 
 ## 1. Goal
 
@@ -14,7 +14,7 @@ Create a Windows desktop application that:
 - Records one logical `PlaySession` per game launch.
 - Always preserves background periods inside that launch as `BackgroundInterval` records, regardless of the calculation setting.
 - Lets the user review and edit recorded sessions later.
-- Retrieves game metadata such as title, brand, release date, and thumbnail from ErogameScape (批評空間).
+- Retrieves game metadata such as title, brand, release date, and thumbnail from ErogameScape (批評空間) or VNDB.
 - Lets the user filter games by brand and sort by values such as total play time and last played time.
 - Runs as a normal Windows application and can stay resident in the system tray.
 - Does not require the user to manually install .NET or another application runtime.
@@ -130,6 +130,8 @@ Suggested fields:
 Game
 - id
 - erogamescape_id       nullable
+- vndb_id                nullable, prefixed string such as v548
+- metadata_source        nullable, erogamescape or vndb
 - title
 - brand_id              nullable
 - release_date          nullable
@@ -393,7 +395,7 @@ Keep the original `focus_intervals` table for rollback compatibility. Existing f
 
 ---
 
-## 7. ErogameScape / 批評空間 metadata
+## 7. ErogameScape / VNDB metadata
 
 ### Purpose
 
@@ -403,7 +405,7 @@ Retrieve and populate game metadata such as:
 - brand;
 - release date;
 - thumbnail / package image when available;
-- ErogameScape game ID;
+- ErogameScape game ID or VNDB game ID;
 - source URL.
 
 ### Provider abstraction
@@ -425,6 +427,7 @@ Implement:
 
 ```text
 ErogameScapeProvider
+VndbProvider
 ```
 
 behind this abstraction.
@@ -433,10 +436,12 @@ This is important because the HTML structure may change in the future and other 
 
 ### Input methods
 
-MVP should support at least one reliable registration method:
+Use one shared input for either provider:
 
-- ErogameScape game URL; or
-- ErogameScape game ID.
+- ErogameScape game URL or numeric game ID;
+- VNDB visual novel URL or prefixed ID such as `v548`.
+
+Detect and validate the provider in Rust and normalize IDs and source URLs. VNDB uses the unauthenticated [Kana API](https://api.vndb.org/kana). Prefer Japanese titles, then the main original-language title, then the display title. Use the first developer in API response order as the brand, preferring its original name. Only populate complete calendar dates; partial dates and TBA remain unset with an explanatory notice.
 
 Title search can be implemented if reliable enough, but URL/ID registration is sufficient for the first working milestone.
 
@@ -451,7 +456,7 @@ Title search can be implemented if reliable enough, but URL/ID registration is s
 
 ### Thumbnail behavior
 
-Download the thumbnail once and cache it locally.
+Download the thumbnail and cache it locally. VNDB images come directly from `image.url`, including images hidden behind a confirmation button on the website. Image download failures produce a warning without discarding the other metadata; refresh retains the existing thumbnail when no new image is available.
 
 Suggested data directory:
 
@@ -462,7 +467,7 @@ Suggested data directory:
 └── logs\
 ```
 
-Do not depend on ErogameScape being reachable merely to render the existing game library.
+Do not depend on either metadata provider being reachable merely to render the existing game library.
 
 ---
 
@@ -520,14 +525,14 @@ Actions:
 
 - add/remove executable;
 - edit metadata where reasonable;
-- refresh ErogameScape metadata;
+- refresh metadata from the selected provider;
 - add/edit/delete session records.
 
 ### 8.5 Add game
 
 Initial flow:
 
-1. Enter ErogameScape URL or ID.
+1. Enter an ErogameScape or VNDB URL or ID in the shared input.
 2. Fetch metadata.
 3. Show preview.
 4. Register game.
@@ -588,7 +593,7 @@ create_background_interval
 update_background_interval
 delete_background_interval
 
-fetch_erogamescape_metadata
+fetch_game_metadata
 refresh_game_metadata
 
 get_settings
@@ -722,7 +727,7 @@ Handle gracefully:
 - game exits while focused;
 - app exits while a session is active;
 - transient database failures;
-- ErogameScape unavailable or HTML parsing fails;
+- metadata provider unavailable, API rate-limited, or HTML/JSON parsing fails;
 - thumbnail download failure.
 
 Failures in metadata retrieval must not stop local play-time tracking.
@@ -885,7 +890,7 @@ The first usable release is complete when all of the following work:
 11. Total play time is derived correctly in both modes, including past sessions, open sessions, timestamps, sorting, and statistics. Toggling the setting never discards background records.
 12. Games can be filtered by brand.
 13. Games can be sorted by total play time and last played time.
-14. Game metadata can be populated from ErogameScape by URL or ID.
+14. Game metadata can be populated from ErogameScape or VNDB by URL or ID.
 15. Thumbnails are cached locally.
 16. The app can remain resident in the system tray.
 17. Metadata/network failure does not break play-time tracking.
@@ -923,6 +928,6 @@ These decisions are intentional and should not be casually changed during implem
 6. A game can have multiple registered executables.
 7. Session state is tracked per game, not per PID.
 8. Durations are derived from timestamps rather than treated as independent authoritative values.
-9. ErogameScape integration is isolated behind a provider abstraction.
-10. Local tracking must continue to work when ErogameScape/network access fails.
+9. ErogameScape and VNDB integration are isolated behind a provider abstraction.
+10. Local tracking must continue to work when metadata provider/network access fails.
 11. A Windows installer `.exe` with automatic dependency handling is acceptable for MVP.
