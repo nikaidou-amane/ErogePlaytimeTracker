@@ -9,6 +9,7 @@
 
   export let openGame: (id: number) => void;
   export let trackingActive = false;
+  export let calculationKey = '';
 
   const today = new Date();
   const currentYear = today.getFullYear();
@@ -28,7 +29,7 @@
     0,
   );
   $: request = periodInput(kind, selectedYear, selectedMonth);
-  $: requestKey = `${request.kind}|${request.year ?? ''}|${request.month ?? ''}`;
+  $: requestKey = `${request.kind}|${request.year ?? ''}|${request.month ?? ''}|${calculationKey}`;
   $: if (requestKey !== loadedKey) {
     loadedKey = requestKey;
     report = null;

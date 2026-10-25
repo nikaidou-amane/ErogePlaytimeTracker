@@ -91,6 +91,22 @@ headerのtracking statusはgame単位のphase（起動中、プレイ中、Backg
 
 tracking state、background記録、session境界、最終プレイの判定は変更しません。backgroundの合計値や区間編集も計算設定と独立して維持します。UIでは「除外時間／区間」ではなく「バックグラウンド時間／区間」と呼び、現在の計算方法を明示します。backupには設定と区間の両方を含め、復元後も計算設定を切り替えられます。
 
+## アプリ共通の一時停止
+
+一時停止はgameの起動・foreground/background状態と独立したapp全体の状態です。`tracking_pause_intervals`へUTC RFC 3339の開始・終了日時を保存し、開いた区間はDBのunique indexで最大1件に制限します。game未起動でも切り替えられ、gameの終了では解除しません。通常終了時は区間を閉じ、異常終了後は`last_seen`で復旧して通常状態から開始します。
+
+設定の`exclude_pause_time`は既定trueで、backgroundの除外設定と独立しています。両方を除外する場合は`session - background - pause + overlap`を使います。全ての区間はsessionや集計期間へclipし、一覧・詳細・並び順・timestamp・統計で共通の区間計算を使います。手動追加・日時編集したsessionにも同じ規則を適用します。running time、backgroundの元記録、最終プレイの定義、legacy focus mirrorは独立して維持します。旧versionは一時停止区間を解釈できないため、一時停止除外は反映しません。
+
+一時停止区間とbackgroundを開始日時順に正規化し、累積時間と二分探索で期間内の時間・重複時間を求めます。queryごとの全組合せJOINは行いません。時刻情報のindexは破棄可能なmemory cacheとし、DBの変更で無効化します。`last_seen`だけの更新ではcacheを保持し、未終了区間はquery時点の時刻で計算します。導出したdurationやaggregateをDBへ保存しません。
+
+設定の「プレイ時間」から開く「一時停止の履歴」はapp共通のmodalで、開始・終了日時の編集、区間の削除、記録中区間の取り消しができます。game詳細に共通履歴の編集UIは置きません。編集・削除は重なる全gameの計算に影響します。編集中に別操作で区間が変わった場合は保存を拒否し、再読み込みを案内します。
+
+セッション詳細には従来の起動時間・プレイ時間・background時間に加え、一時停止による計測除外時間を表示します。`list_sessions`の`pause_excluded_seconds`は、セッション内のpauseのうち現在の設定で追加除外した秒数です。background除外が有効なら、その時点で既に除外されている重複分を含めません。backgroundの記録時間や元の区間表示は維持します。既存cacheの累積時間と二分探索を使い、区間一覧・DB保存値・schemaの変更は追加しません。
+
+`tracking_pause_hotkey`は既定空文字で、撮影・OCR検索と同じregistryで重複検証・入力中の一時解除・登録失敗時の復元を行います。登録確認用IDは実キーと分離します。停止中はtray iconを橙色へ変更し、taskbarへ停止markを重ねます。`tracking-status`の`is_paused`と`pause_started_at`はevent・polling共通で、gameのphaseは従来どおりです。停止中も撮影・OCRを利用でき、update・backupの起動中game guardは維持します。
+
+Backupには履歴と設定を含めます。開いた停止区間はexportするsnapshot内だけでsnapshot時刻までに閉じ、実行中appの停止状態は維持します。Importでは終了済み・非重複の停止履歴を検証し、移行先で停止状態を再開しません。Schema migration 7でtableを追加し、旧backupは停止履歴なしとして移行します。
+
 ## ErogameScape / VNDB連携
 
 1つの入力欄へgame URLまたはIDを指定し、title、brand、発売日、package imageを取得します。数字のみはErogameScape、`v548`形式またはVNDBの作品URLはVNDBとしてRust側で判定します。`GameMetadataProvider`の下でErogameScapeはHTMLを解析し、VNDBは認証不要の[公式Kana API](https://api.vndb.org/kana)を利用します。

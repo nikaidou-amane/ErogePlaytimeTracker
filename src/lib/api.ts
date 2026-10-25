@@ -21,6 +21,7 @@ import type {
   StatisticsPeriodInput,
   StatisticsReport,
   TrackingStatus,
+  TrackingPauseInterval,
   UpdateCompletionNotice,
 } from './types';
 
@@ -31,6 +32,14 @@ function command<T>(name: string, args?: Record<string, unknown>) {
 }
 
 export const api = {
+  setTrackingPaused: (paused: boolean) =>
+    command<TrackingStatus>('set_tracking_paused', { paused }),
+  pauseIntervals: (beforeId: number | null = null) =>
+    command<TrackingPauseInterval[]>('list_tracking_pause_intervals', { beforeId, limit: 50 }),
+  updatePauseInterval: (id: number, start: string, end: string | null, expectedUpdatedAt: string) =>
+    command<void>('update_tracking_pause_interval', { id, start, end, expectedUpdatedAt }),
+  deletePauseInterval: (id: number, expectedUpdatedAt: string) =>
+    command<void>('delete_tracking_pause_interval', { id, expectedUpdatedAt }),
   listGames: (
     search = '',
     brand = '',
@@ -111,10 +120,13 @@ export const api = {
     command<UpdateCompletionNotice | null>('get_update_completion_notice'),
   acknowledgeUpdateCompletion: (version: string) =>
     command<void>('acknowledge_update_completion', { version }),
-  validateHotkeys: (settings: Pick<Settings, 'screenshot_hotkey' | 'ocr_search_hotkey'>) =>
+  validateHotkeys: (
+    settings: Pick<Settings, 'screenshot_hotkey' | 'ocr_search_hotkey' | 'tracking_pause_hotkey'>,
+  ) =>
     command<void>('validate_hotkeys', {
       screenshotHotkey: settings.screenshot_hotkey,
       ocrSearchHotkey: settings.ocr_search_hotkey,
+      trackingPauseHotkey: settings.tracking_pause_hotkey,
     }),
   suspendHotkeys: () => command<void>('suspend_hotkeys'),
   resumeHotkeys: () => command<void>('resume_hotkeys'),

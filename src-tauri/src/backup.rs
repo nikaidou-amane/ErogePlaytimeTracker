@@ -1,5 +1,5 @@
 use crate::{
-    database::{CURRENT_SCHEMA_VERSION, Database},
+    database::{CURRENT_SCHEMA_VERSION, Database, close_open_pauses, validate_pause_records},
     models::{
         AppSettings, BackupDataSummary, BackupExportProgress, BackupExportResult,
         BackupImportNotice, BackupImportPreview,
@@ -111,8 +111,9 @@ pub(crate) fn export_backup(
     fs::create_dir_all(&work)?;
     let result = (|| {
         let snapshot = work.join(DATABASE_PATH);
-        database.snapshot_to(&snapshot)?;
-        let prepared = prepare_snapshot_for_export(&snapshot, data_root, includes_screenshots)?;
+        let snapshot_at = database.snapshot_to(&snapshot)?;
+        let prepared =
+            prepare_snapshot_for_export(&snapshot, data_root, includes_screenshots, &snapshot_at)?;
 
         let mut files = Vec::with_capacity(prepared.media.len() + 1);
         files.push(export_file(DATABASE_PATH.into(), snapshot)?);
@@ -132,7 +133,7 @@ pub(crate) fn export_backup(
             format_version: BACKUP_FORMAT_VERSION,
             app_version: env!("CARGO_PKG_VERSION").into(),
             schema_version: CURRENT_SCHEMA_VERSION,
-            exported_at: Utc::now().to_rfc3339(),
+            exported_at: snapshot_at,
             includes_screenshots,
             summary: prepared.summary.clone(),
             files: Vec::with_capacity(files.len()),
@@ -213,6 +214,7 @@ pub(crate) fn prepare_import(
             .iter()
             .map(|entry| entry.path.as_str())
             .collect();
+        validate_pause_records(&connection)?;
         rewrite_imported_paths(&connection, &payload, data_root, &manifest_paths)?;
         reset_machine_specific_state(&connection)?;
         validate_database(&connection)?;
@@ -449,10 +451,13 @@ fn prepare_snapshot_for_export(
     database_path: &Path,
     data_root: &Path,
     includes_screenshots: bool,
+    snapshot_at: &str,
 ) -> Result<PreparedSnapshot> {
     let mut connection = Connection::open(database_path)?;
     connection.pragma_update(None, "foreign_keys", "ON")?;
     let transaction = connection.transaction()?;
+    close_open_pauses(&transaction, snapshot_at)?;
+    validate_pause_records(&transaction)?;
     let thumbnail_rows = {
         let mut statement = transaction.prepare(
             "SELECT id, thumbnail_path FROM games WHERE thumbnail_path IS NOT NULL ORDER BY id",
@@ -1224,6 +1229,45 @@ mod tests {
         (root, database, game_id)
     }
 
+    #[test]
+    fn pause_history_is_snapshotted_without_resuming_the_running_app() {
+        let temporary = TestDirectory::new("backup-pause");
+        let (source_root, source, game) = create_data_root(&temporary.0, "source");
+        source.set_paused(true, "2026-01-01T00:20:00Z").unwrap();
+        source.set_paused(false, "2026-01-01T00:40:00Z").unwrap();
+        source.set_paused(true, "2026-01-01T02:00:00Z").unwrap();
+        let mut settings = source.settings().unwrap();
+        settings.tracking_pause_hotkey = "Ctrl+Shift+F11".into();
+        source
+            .set_setting("app", &serde_json::to_string(&settings).unwrap())
+            .unwrap();
+        let path = temporary.0.join("pauses.eptbackup");
+        export_backup(&source, &source_root, &path, false, true, |_| {}).unwrap();
+        assert!(source.active_pause().unwrap().is_some());
+        let (target_root, target, _) = create_data_root(&temporary.0, "target");
+        let preview = prepare_import(&target, &target_root, &path).unwrap();
+        let staged = Database::open(
+            &stage_root(&target_root, &preview.import_id)
+                .join("payload")
+                .join(DATABASE_PATH),
+        )
+        .unwrap();
+        assert!(staged.active_pause().unwrap().is_none());
+        assert_eq!(staged.pause_intervals(None, 100).unwrap().len(), 2);
+        assert_eq!(
+            staged.settings().unwrap().tracking_pause_hotkey,
+            "Ctrl+Shift+F11"
+        );
+        assert_eq!(
+            staged
+                .get_game(game)
+                .unwrap()
+                .summary
+                .total_playtime_seconds,
+            2100
+        );
+    }
+
     fn rewrite_test_archive(
         source: &Path,
         destination: &Path,
@@ -1279,7 +1323,7 @@ mod tests {
         let connection = Connection::open(&database_path).unwrap();
         connection
             .execute_batch(
-                "DROP TABLE game_screenshots;
+                "DROP TABLE tracking_pause_intervals; DROP TABLE game_screenshots;
                  DROP INDEX idx_games_vndb_id;
                  ALTER TABLE games DROP COLUMN vndb_id;
                  ALTER TABLE games DROP COLUMN metadata_source;
@@ -1341,6 +1385,8 @@ mod tests {
                     skipped_update_version: Some("0.1.9".into()),
                     close_to_tray: false,
                     exclude_background_time: false,
+                    exclude_pause_time: true,
+                    tracking_pause_hotkey: String::new(),
                     theme: "blue".into(),
                     screenshot_hotkey: "F10".into(),
                     ocr_search_hotkey: "Ctrl+F10".into(),

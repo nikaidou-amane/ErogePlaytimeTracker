@@ -5,16 +5,31 @@
   import { relaunch } from '@tauri-apps/plugin-process';
   import { check } from '@tauri-apps/plugin-updater';
   import { api } from '../lib/api';
+  import PauseHistory from './PauseHistory.svelte';
+  import SettingsIcon from './SettingsIcon.svelte';
   import { userErrorMessage } from '../lib/errors';
-  import type { BackupExportProgress, BackupImportPreview, Settings, Theme } from '../lib/types';
+  import type {
+    BackupExportProgress,
+    BackupImportPreview,
+    Settings,
+    Theme,
+    TrackingStatus,
+  } from '../lib/types';
   export let ontheme: (theme: Theme) => void = () => {};
   export let ondirty: (dirty: boolean) => void = () => {};
   export let onsaved: (settings: Settings) => void = () => {};
   export let trackingActive = false;
-  type HotkeyField = 'screenshot_hotkey' | 'ocr_search_hotkey';
+  export let status: TrackingStatus = { games: [], is_paused: false, pause_started_at: null };
+  export let onstatus: (status: TrackingStatus) => void = () => {};
+  export let ontogglepause: () => void = () => {};
+  export let pauseBusy = false;
+  let historyOpen = false;
+
+  type HotkeyField = 'screenshot_hotkey' | 'ocr_search_hotkey' | 'tracking_pause_hotkey';
   const hotkeyFields: Array<{ field: HotkeyField; label: string }> = [
     { field: 'screenshot_hotkey', label: 'スクリーンショットキー' },
     { field: 'ocr_search_hotkey', label: 'ゲーム画面のOCR検索キー' },
+    { field: 'tracking_pause_hotkey', label: '計測の一時停止／再開キー' },
   ];
   let recordingHotkey: HotkeyField | null = null;
   let settings: Settings = {
@@ -23,6 +38,8 @@
       skipped_update_version: null,
       close_to_tray: true,
       exclude_background_time: true,
+      exclude_pause_time: true,
+      tracking_pause_hotkey: '',
       theme: 'dark',
       screenshot_hotkey: '',
       ocr_search_hotkey: '',
@@ -67,7 +84,11 @@
       [settings, currentVersion] = await Promise.all([api.settings(), getVersion()]);
       savedSettings = { ...settings };
       ontheme(settings.theme);
-      if (settings.screenshot_hotkey || settings.ocr_search_hotkey) {
+      if (
+        settings.screenshot_hotkey ||
+        settings.ocr_search_hotkey ||
+        settings.tracking_pause_hotkey
+      ) {
         try {
           await api.validateHotkeys(settings);
         } catch (e) {
@@ -393,7 +414,7 @@
 
 <svelte:window onkeydown={recordHotkey} />
 
-<section class="panel form">
+<section class="panel form settings-page">
   <h1>設定</h1>
   <label
     >カラーテーマ<select bind:value={settings.theme} onchange={previewTheme}
@@ -446,12 +467,65 @@
     /> バックグラウンド時間をプレイ時間から除外する</label
   >
   <p class="hint" id="background-playtime-help">
-    初期設定はオンです。オフにすると、起動から終了までの時間をプレイ時間として計算します。
+    初期設定はオンです。オフにするとバックグラウンド時間もプレイ時間に含めます。一時停止時間は別の設定に従います。
     保存すると、すべてのゲームの過去の履歴・統計にも反映されます。
     どちらの設定でもバックグラウンド時間の記録は続けるため、あとから切り替えられます。
   </p>
+  <div class="settings-card">
+    <div class="settings-pause-control" class:is-paused={status.is_paused}>
+      <span class="settings-pause-symbol"
+        ><SettingsIcon name={status.is_paused ? 'pause' : 'clock'} /></span
+      >
+      <div class="settings-pause-state">
+        <div class="settings-pause-title">
+          <strong>プレイ時間の計測</strong>{#if status.is_paused}<span class="pause-live-tag"
+              >一時停止中</span
+            >{/if}
+        </div>
+        <span
+          >{status.is_paused
+            ? savedSettings?.exclude_pause_time
+              ? 'プレイ時間から除外中'
+              : '停止時間をプレイ時間に含む設定です'
+            : 'ゲーム起動時に自動で計測'}</span
+        >
+      </div>
+      <button class="settings-pause-toggle" disabled={pauseBusy} onclick={ontogglepause}
+        ><SettingsIcon name={status.is_paused ? 'play' : 'pause'} />{status.is_paused
+          ? '計測を再開'
+          : '計測を一時停止'}</button
+      >
+    </div>
+    <div class="settings-pause-links">
+      <a href="#settings-shortcuts"
+        ><SettingsIcon name="keyboard" /><span>停止・再開キー</span><kbd
+          >{settings.tracking_pause_hotkey || 'キー未設定'}</kbd
+        ></a
+      ><button
+        class="settings-text-button"
+        disabled={recordingHotkey !== null || checkingHotkey}
+        onclick={() => (historyOpen = true)}
+        ><SettingsIcon name="history" />一時停止の履歴<SettingsIcon name="arrow" /></button
+      >
+    </div>
+    <label class="settings-row settings-switch-row"
+      ><span><strong>一時停止時間を除外</strong><small>プレイ時間に含めない</small></span><input
+        class="settings-switch"
+        type="checkbox"
+        role="switch"
+        bind:checked={settings.exclude_pause_time}
+      /></label
+    >
+    <div class="settings-card-note">
+      <SettingsIcon name="history" /><span>過去の履歴・統計にも適用</span>
+    </div>
+  </div>
+
   {#each hotkeyFields as { field, label }}
-    <div class="hotkey-setting">
+    <div
+      class="hotkey-setting"
+      id={field === 'tracking_pause_hotkey' ? 'settings-shortcuts' : undefined}
+    >
       <span class="setting-label">{label}</span>
       <div
         class:recording={recordingHotkey === field}
@@ -580,6 +654,12 @@
       {message}
     </p>{/if}{#if error}<p class="error">{error}</p>{/if}
 </section>
+
+{#if historyOpen}<PauseHistory
+    {status}
+    onchange={onstatus}
+    onclose={() => (historyOpen = false)}
+  />{/if}
 
 {#if importPreview}<div class="modal backup-import-modal">
     <div
