@@ -43,6 +43,7 @@ export interface Session {
   playtime_seconds: number;
   background_seconds: number;
   running_seconds: number | null;
+  pause_excluded_seconds: number;
 }
 export type StatisticsPeriodKind = 'month' | 'year' | 'all';
 export interface StatisticsPeriodInput {
@@ -159,11 +160,15 @@ export interface Settings {
   skipped_update_version: string | null;
   close_to_tray: boolean;
   exclude_background_time: boolean;
+  exclude_pause_time: boolean;
+  tracking_pause_hotkey: string;
   theme: Theme;
   screenshot_hotkey: string;
   ocr_search_hotkey: string;
 }
 export interface TrackingStatus {
+  is_paused: boolean;
+  pause_started_at: string | null;
   games: Array<{
     game_id: number;
     title: string;
@@ -220,4 +225,11 @@ export interface ReleaseChanges {
 export interface UpdateCompletionNotice {
   version: string;
   releases: ReleaseChanges[];
+}
+
+export interface TrackingPauseInterval {
+  id: number;
+  started_at: string;
+  ended_at: string | null;
+  updated_at: string;
 }

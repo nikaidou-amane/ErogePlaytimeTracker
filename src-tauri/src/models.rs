@@ -42,6 +42,7 @@ pub struct PlaySession {
     pub playtime_seconds: i64,
     pub background_seconds: i64,
     pub running_seconds: Option<i64>,
+    pub pause_excluded_seconds: i64,
 }
 #[derive(Debug, Clone, Deserialize)]
 pub struct StatisticsPeriodInput {
@@ -163,6 +164,8 @@ pub struct AppSettings {
     pub skipped_update_version: Option<String>,
     pub close_to_tray: bool,
     pub exclude_background_time: bool,
+    pub exclude_pause_time: bool,
+    pub tracking_pause_hotkey: String,
     pub theme: String,
     pub screenshot_hotkey: String,
     pub ocr_search_hotkey: String,
@@ -175,6 +178,8 @@ impl Default for AppSettings {
             skipped_update_version: None,
             close_to_tray: true,
             exclude_background_time: true,
+            exclude_pause_time: true,
+            tracking_pause_hotkey: String::new(),
             theme: "dark".into(),
             screenshot_hotkey: String::new(),
             ocr_search_hotkey: String::new(),
@@ -238,6 +243,8 @@ pub struct TrackingGameStatus {
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct TrackingStatus {
+    pub is_paused: bool,
+    pub pause_started_at: Option<String>,
     pub games: Vec<TrackingGameStatus>,
 }
 
@@ -297,4 +304,12 @@ pub struct ReleaseChanges {
 pub struct UpdateCompletionNotice {
     pub version: semver::Version,
     pub releases: Vec<ReleaseChanges>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TrackingPauseInterval {
+    pub id: i64,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub updated_at: String,
 }

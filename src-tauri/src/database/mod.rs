@@ -1,8 +1,12 @@
+mod pauses;
+mod playtime;
 use crate::metadata::MetadataIdentity;
 use crate::models::*;
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Datelike, Duration, Local, LocalResult, NaiveDate, TimeZone, Utc};
 use parking_lot::Mutex;
+pub(crate) use pauses::{close_open_pauses, validate_pause_records};
+use playtime::{Coverage, SessionTime};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -11,8 +15,8 @@ use std::{
 };
 
 #[derive(Clone)]
-pub struct Database(Arc<Mutex<Connection>>);
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 6;
+pub struct Database(Arc<Mutex<Connection>>, Arc<Mutex<playtime::Cache>>);
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 7;
 const MIGRATION_1: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
 CREATE TABLE brands(id INTEGER PRIMARY KEY, erogamescape_id INTEGER, name TEXT NOT NULL COLLATE NOCASE UNIQUE);
@@ -72,13 +76,23 @@ ALTER TABLE games ADD COLUMN metadata_source TEXT
 UPDATE games SET metadata_source='erogamescape' WHERE erogamescape_id IS NOT NULL;
 "#;
 
+const MIGRATION_7: &str = r#"
+CREATE TABLE tracking_pause_intervals(
+ id INTEGER PRIMARY KEY, started_at TEXT NOT NULL, ended_at TEXT,
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+ CHECK(ended_at IS NULL OR ended_at >= started_at)
+);
+CREATE INDEX idx_tracking_pause_time ON tracking_pause_intervals(started_at);
+CREATE UNIQUE INDEX idx_tracking_pause_open ON tracking_pause_intervals((1)) WHERE ended_at IS NULL;
+"#;
+
 impl Database {
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path)
             .with_context(|| format!("databaseを開けません: {}", path.display()))?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
-        let db = Self(Arc::new(Mutex::new(conn)));
+        let db = Self(Arc::new(Mutex::new(conn)), Default::default());
         db.migrate()?;
         Ok(db)
     }
@@ -86,11 +100,11 @@ impl Database {
     pub fn memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
-        let db = Self(Arc::new(Mutex::new(conn)));
+        let db = Self(Arc::new(Mutex::new(conn)), Default::default());
         db.migrate()?;
         Ok(db)
     }
-    pub(crate) fn snapshot_to(&self, destination: &Path) -> Result<()> {
+    pub(crate) fn snapshot_to(&self, destination: &Path) -> Result<String> {
         if destination.exists() {
             std::fs::remove_file(destination).with_context(|| {
                 format!(
@@ -99,10 +113,10 @@ impl Database {
                 )
             })?;
         }
-        self.0
-            .lock()
-            .execute("VACUUM INTO ?1", [destination.to_string_lossy().as_ref()])?;
-        Ok(())
+        let connection = self.0.lock();
+        let snapshot_at = now();
+        connection.execute("VACUUM INTO ?1", [destination.to_string_lossy().as_ref()])?;
+        Ok(snapshot_at)
     }
     pub(crate) fn backup_summary(&self) -> Result<BackupDataSummary> {
         backup_summary(&self.0.lock())
@@ -179,6 +193,14 @@ impl Database {
                 }
             }
             tx.execute("INSERT INTO schema_migrations VALUES(6,?)", [now()])?;
+        }
+        if !tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=7)",
+            [],
+            |r| r.get::<_, bool>(0),
+        )? {
+            tx.execute_batch(MIGRATION_7)?;
+            tx.execute("INSERT INTO schema_migrations VALUES(7,?)", [now()])?;
         }
         tx.commit()?;
         Ok(())
@@ -297,17 +319,27 @@ impl Database {
         let c = self.0.lock();
         let mut q = c.prepare(&sql)?;
         let rows = q.query_map(
-            params![
-                app_settings(&c)?.exclude_background_time,
-                like,
-                brand,
-                brand,
-                play_status,
-                play_status
-            ],
+            params![like, brand, brand, play_status, play_status],
             game_row,
         )?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
+        let mut games = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        let index = self.time_index(&c)?;
+        let settings = app_settings(&c)?;
+        let at = Utc::now().timestamp();
+        for game in &mut games {
+            game.total_playtime_seconds = index.total(game.id, at, &settings);
+        }
+        if sort == "total_playtime" {
+            games.sort_by(|a, b| {
+                let order = a.total_playtime_seconds.cmp(&b.total_playtime_seconds);
+                (if descending { order.reverse() } else { order }).then_with(|| {
+                    a.title
+                        .to_ascii_lowercase()
+                        .cmp(&b.title.to_ascii_lowercase())
+                })
+            });
+        }
+        Ok(games)
     }
     pub fn list_brands(&self) -> Result<Vec<String>> {
         let connection = self.0.lock();
@@ -323,11 +355,10 @@ impl Database {
     }
     pub fn get_game(&self, id: i64) -> Result<GameDetail> {
         let c = self.0.lock();
-        let summary = c
+        let mut summary = c
             .query_row(
                 &format!("{} AND g.id=?", GAME_QUERY),
                 params![
-                    app_settings(&c)?.exclude_background_time,
                     "%",
                     Option::<String>::None,
                     Option::<String>::None,
@@ -339,6 +370,9 @@ impl Database {
             )
             .optional()?
             .context("ゲームが見つかりません")?;
+        summary.total_playtime_seconds =
+            self.time_index(&c)?
+                .total(id, Utc::now().timestamp(), &app_settings(&c)?);
         let (eid, vid, provider, url) = c.query_row(
             "SELECT erogamescape_id,vndb_id,metadata_source,source_url FROM games WHERE id=?",
             [id],
@@ -367,21 +401,35 @@ impl Database {
     }
     pub fn list_sessions(&self, game: i64) -> Result<Vec<PlaySession>> {
         let c = self.0.lock();
-        let exclude_background_time = app_settings(&c)?.exclude_background_time;
-        let mut q=c.prepare("SELECT s.id,s.game_id,s.launched_at,s.exited_at,s.needs_review,MAX(0,CAST(strftime('%s',COALESCE(s.exited_at,'now')) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER)-?*COALESCE(SUM(MAX(0,CAST(strftime('%s',COALESCE(b.ended_at,'now')) AS INTEGER)-CAST(strftime('%s',b.started_at) AS INTEGER))),0)),COALESCE(SUM(MAX(0,CAST(strftime('%s',COALESCE(b.ended_at,'now')) AS INTEGER)-CAST(strftime('%s',b.started_at) AS INTEGER))),0),CASE WHEN s.exited_at IS NULL THEN NULL ELSE CAST(strftime('%s',s.exited_at) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER) END FROM play_sessions s LEFT JOIN background_intervals b ON b.play_session_id=s.id WHERE s.game_id=? GROUP BY s.id ORDER BY s.launched_at DESC")?;
-        Ok(q.query_map(params![exclude_background_time, game], |r| {
+        let settings = app_settings(&c)?;
+        let index = self.time_index(&c)?;
+        let at = Utc::now().timestamp();
+        let mut q=c.prepare("SELECT id,game_id,launched_at,exited_at,needs_review FROM play_sessions WHERE game_id=? ORDER BY launched_at DESC")?;
+        let rows = q.query_map([game], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, bool>(4)?,
+            ))
+        })?;
+        rows.map(|r| {
+            let (id, game_id, launched_at, exited_at, needs_review) = r?;
+            let time = &index.sessions[&id];
             Ok(PlaySession {
-                id: r.get(0)?,
-                game_id: r.get(1)?,
-                launched_at: r.get(2)?,
-                exited_at: r.get(3)?,
-                needs_review: r.get::<_, i64>(4)? != 0,
-                playtime_seconds: r.get(5)?,
-                background_seconds: r.get(6)?,
-                running_seconds: r.get(7)?,
+                id,
+                game_id,
+                launched_at,
+                exited_at,
+                needs_review,
+                playtime_seconds: time.playtime(i64::MIN, i64::MAX, at, &settings, &index.pause),
+                background_seconds: time.background_seconds(at),
+                running_seconds: time.end.map(|end| end - time.start),
+                pause_excluded_seconds: time.pause_excluded_seconds(at, &settings, &index.pause),
             })
-        })?
-        .collect::<rusqlite::Result<_>>()?)
+        })
+        .collect()
     }
     pub fn intervals(&self, session: i64) -> Result<Vec<BackgroundInterval>> {
         let c = self.0.lock();
@@ -633,21 +681,24 @@ impl Database {
     }
     pub fn timestamps(&self, game: i64) -> Result<Vec<GameTimestamp>> {
         let c = self.0.lock();
-        let exclude_background_time = app_settings(&c)?.exclude_background_time;
+        let settings = app_settings(&c)?;
+        let index = self.time_index(&c)?;
+        let at = Utc::now().timestamp();
         let mut query = c.prepare(
             "SELECT id,game_id,name,marked_at FROM game_timestamps WHERE game_id=? ORDER BY marked_at,id",
         )?;
         let rows: Vec<(i64, i64, String, String)> = query
             .query_map([game], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
             .collect::<rusqlite::Result<_>>()?;
+        let points = rows
+            .iter()
+            .map(|row| timestamp_seconds(&row.3))
+            .collect::<Result<Vec<_>>>()?;
+        let cumulative = index.cumulative(game, &points, at, &settings);
         let mut previous = 0;
         rows.into_iter()
-            .map(|(id, game_id, name, marked_at)| {
-                let playtime_seconds: i64 = c.query_row(
-                    "SELECT MAX(0,COALESCE(SUM(MAX(0,CAST(strftime('%s',MIN(COALESCE(s.exited_at,?),?)) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER))),0)-?*COALESCE((SELECT SUM(MAX(0,CAST(strftime('%s',MIN(COALESCE(b.ended_at,?),?)) AS INTEGER)-CAST(strftime('%s',MAX(b.started_at,s2.launched_at)) AS INTEGER))) FROM background_intervals b JOIN play_sessions s2 ON s2.id=b.play_session_id WHERE s2.game_id=? AND b.started_at<?),0)) FROM play_sessions s WHERE s.game_id=? AND s.launched_at<?",
-                    params![marked_at, marked_at, exclude_background_time, marked_at, marked_at, game_id, marked_at, game_id, marked_at],
-                    |r| r.get(0),
-                )?;
+            .zip(cumulative)
+            .map(|((id, game_id, name, marked_at), playtime_seconds)| {
                 let since_previous_seconds = (playtime_seconds - previous).max(0);
                 previous = playtime_seconds;
                 Ok(GameTimestamp {
@@ -679,6 +730,7 @@ impl Database {
             params![at, now()],
         )?;
         tx.execute("UPDATE play_sessions SET exited_at=?,needs_review=1,updated_at=? WHERE exited_at IS NULL",params![at,now()])?;
+        close_open_pauses(&tx, at)?;
         tx.commit()?;
         Ok(n)
     }
@@ -741,7 +793,8 @@ impl Database {
         let snapshot = Utc::now();
         let snapshot_text = snapshot.to_rfc3339();
         let connection = self.0.lock();
-        let exclude_background_time = app_settings(&connection)?.exclude_background_time;
+        let calculation_settings = app_settings(&connection)?;
+        let pause_coverage = self.time_index(&connection)?.pause.clone();
         if let Some(game_id) = game_id {
             let game_exists: bool = connection.query_row(
                 "SELECT EXISTS(SELECT 1 FROM games WHERE id=?)",
@@ -849,7 +902,9 @@ impl Database {
             days,
             sessions,
             available_years,
-            exclude_background_time,
+            calculation_settings.exclude_background_time,
+            &pause_coverage,
+            calculation_settings.exclude_pause_time,
         ))
     }
     pub fn settings(&self) -> Result<AppSettings> {
@@ -865,7 +920,11 @@ impl Database {
             .optional()?)
     }
     pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
-        self.0.lock().execute("INSERT INTO settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",params![key,value,now()])?;
+        let connection = self.0.lock();
+        connection.execute("INSERT INTO settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",params![key,value,now()])?;
+        if key == "last_seen" {
+            self.1.lock().ignored_changes += 1;
+        }
         Ok(())
     }
     pub fn add_screenshot(
@@ -1150,6 +1209,8 @@ fn aggregate_statistics(
     sessions: Vec<RawStatisticsSession>,
     available_years: Vec<i32>,
     exclude_background_time: bool,
+    pause: &Coverage,
+    exclude_pause_time: bool,
 ) -> StatisticsReport {
     let mut day_values: Vec<StatisticsDayAccum> = day_boundaries
         .iter()
@@ -1160,7 +1221,18 @@ fn aggregate_statistics(
     let mut needs_review_session_count = 0_i64;
     let mut longest_session: Option<StatisticsSessionHighlight> = None;
 
+    let settings = AppSettings {
+        exclude_background_time,
+        exclude_pause_time,
+        ..Default::default()
+    };
     for session in sessions {
+        let calculation = SessionTime::new(
+            session.start,
+            Some(session.end),
+            session.background.clone(),
+            pause,
+        );
         let mut session_playtime = 0_i64;
         let first_day = day_boundaries.partition_point(|day| day.end <= session.start);
         for (index, day) in day_boundaries.iter().enumerate().skip(first_day) {
@@ -1171,25 +1243,7 @@ fn aggregate_statistics(
             if running == 0 {
                 continue;
             }
-            let background: i64 = session
-                .background
-                .iter()
-                .map(|(start, end)| {
-                    overlap_seconds(
-                        (*start).max(session.start),
-                        (*end).min(session.end),
-                        day.start,
-                        day.end,
-                    )
-                })
-                .sum();
-            let playtime = (running
-                - if exclude_background_time {
-                    background
-                } else {
-                    0
-                })
-            .max(0);
+            let playtime = calculation.playtime(day.start, day.end, session.end, &settings, pause);
             if playtime == 0 {
                 continue;
             }
@@ -1348,7 +1402,7 @@ fn trim_statistics_to_active_range(mut report: StatisticsReport) -> StatisticsRe
 }
 
 const GAME_QUERY: &str = "SELECT g.id,g.title,b.name,g.release_date,g.thumbnail_path,g.created_at,
-MAX(0,COALESCE((SELECT SUM(MAX(0,CAST(strftime('%s',COALESCE(s.exited_at,'now')) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER))) FROM play_sessions s WHERE s.game_id=g.id),0)-?*COALESCE((SELECT SUM(MAX(0,CAST(strftime('%s',COALESCE(b.ended_at,'now')) AS INTEGER)-CAST(strftime('%s',b.started_at) AS INTEGER))) FROM background_intervals b JOIN play_sessions bs ON bs.id=b.play_session_id WHERE bs.game_id=g.id),0)) total_playtime_seconds,
+0 total_playtime_seconds,
 COALESCE((SELECT SUM(MAX(0,CAST(strftime('%s',COALESCE(s.exited_at,'now')) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER))) FROM play_sessions s WHERE s.game_id=g.id),0) total_running_seconds,
 (SELECT MAX(COALESCE(f.ended_at,f.started_at)) FROM focus_intervals f JOIN play_sessions fs ON fs.id=f.play_session_id WHERE fs.game_id=g.id) last_played,
 (SELECT COUNT(*) FROM play_sessions s WHERE s.game_id=g.id) session_count,
@@ -1929,7 +1983,7 @@ mod tests {
         ] {
             c.execute("INSERT INTO games(id,title,erogamescape_id,source_url,created_at,updated_at) VALUES(?,?,?,?,?,?)", params![id, format!("Game {id}"), eid, url, now(), now()]).unwrap();
         }
-        let d = Database(Arc::new(Mutex::new(c)));
+        let d = Database(Arc::new(Mutex::new(c)), Default::default());
         let session = d
             .manual_session(1, "2026-01-01T00:00:00Z", "2026-01-01T01:00:00Z")
             .unwrap();
@@ -2403,7 +2457,15 @@ mod tests {
                 },
             ];
 
-            let report = aggregate_statistics(period, days, sessions, vec![2026], exclude);
+            let report = aggregate_statistics(
+                period,
+                days,
+                sessions,
+                vec![2026],
+                exclude,
+                &Coverage::default(),
+                true,
+            );
 
             assert_eq!(report.days[0].playtime_seconds, 3_600);
             assert_eq!(

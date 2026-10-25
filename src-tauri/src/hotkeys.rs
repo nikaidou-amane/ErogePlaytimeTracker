@@ -7,12 +7,14 @@ use std::{
 };
 use tauri::{AppHandle, Emitter};
 
-pub type Bindings = [String; 2];
+pub type Bindings = [String; 3];
+const VALIDATION_ID: i32 = 100;
 
 pub fn bindings(settings: &AppSettings) -> Bindings {
     [
         settings.screenshot_hotkey.clone(),
         settings.ocr_search_hotkey.clone(),
+        settings.tracking_pause_hotkey.clone(),
     ]
 }
 
@@ -75,6 +77,12 @@ impl HotkeyService {
                                 }
                             }
                             2 => crate::game_ocr::start(app.clone(), tracker.clone(), busy.clone()),
+                            3 => {
+                                if let Err(error) = tracker.toggle_paused() {
+                                    log::error!("pause hotkey failed: {error:#}");
+                                    let _=app.emit("tracking-pause-error","一時停止状態を変更できませんでした。もう一度お試しください。");
+                                }
+                            }
                             _ => {}
                         }
                     } else {
@@ -114,11 +122,16 @@ pub fn validate_bindings(values: &Bindings) -> anyhow::Result<()> {
     for value in values {
         validate_hotkey(value)?;
     }
-    if values.iter().all(|value| !value.trim().is_empty()) {
-        anyhow::ensure!(
-            parse_hotkey(&values[0])? != parse_hotkey(&values[1])?,
-            "撮影用とOCR検索用には別のキーを設定してください。"
-        );
+    for (index, value) in values.iter().enumerate() {
+        if value.trim().is_empty() {
+            continue;
+        }
+        for other in &values[index + 1..] {
+            anyhow::ensure!(
+                other.trim().is_empty() || parse_hotkey(value)? != parse_hotkey(other)?,
+                "撮影・OCR検索・一時停止にはそれぞれ別のキーを設定してください。"
+            );
+        }
     }
     Ok(())
 }
@@ -168,8 +181,8 @@ impl<N: NativeHotkeys> Registry<N> {
             {
                 continue;
             }
-            self.native.register(value, 3)?;
-            self.native.unregister(3);
+            self.native.register(value, VALIDATION_ID)?;
+            self.native.unregister(VALIDATION_ID);
         }
         Ok(())
     }
@@ -311,7 +324,61 @@ mod tests {
         }
     }
     fn pair(first: &str, second: &str) -> Bindings {
-        [first.into(), second.into()]
+        [first.into(), second.into(), String::new()]
+    }
+
+    #[test]
+    fn three_bindings_validate_without_unbinding_the_pause_key() {
+        let mut registry = Registry::new(FakeHotkeys::default());
+        let values = ["F9".into(), "F10".into(), "F11".into()];
+        registry.update(values.clone()).unwrap();
+        registry
+            .check(&["Ctrl+F9".into(), "F10".into(), "F11".into()])
+            .unwrap();
+        assert_eq!(registry.native.registered.get(&3).unwrap(), "F11");
+        assert_eq!(registry.native.registered.len(), 3);
+        for duplicate in [
+            ["F11".into(), "F10".into(), "F11".into()],
+            ["".into(), "Ctrl+F11".into(), "control+f11".into()],
+        ] {
+            assert!(registry.update(duplicate).is_err());
+            assert_eq!(registry.current, values);
+        }
+        registry.native.fail_install = Some("Ctrl+F11".into());
+        assert!(
+            registry
+                .update(["F9".into(), "F10".into(), "Ctrl+F11".into()])
+                .is_err()
+        );
+        assert_eq!(registry.current, values);
+    }
+
+    #[test]
+    #[ignore = "registers three temporary native global hotkeys"]
+    fn native_three_hotkeys_keep_pause_registered_during_validation() {
+        let mut registry = Registry::new(WindowsHotkeys);
+        let result = (|| -> anyhow::Result<()> {
+            registry.update([
+                "Ctrl+Alt+Shift+F22".into(),
+                "Ctrl+Alt+Shift+F23".into(),
+                "Ctrl+Alt+Shift+F24".into(),
+            ])?;
+            registry.check(&[
+                "Ctrl+Alt+Shift+F21".into(),
+                "Ctrl+Alt+Shift+F23".into(),
+                "Ctrl+Alt+Shift+F24".into(),
+            ])?;
+            anyhow::ensure!(
+                register_hotkey("Ctrl+Alt+Shift+F24", 101).is_err(),
+                "pause hotkey was unregistered during validation"
+            );
+            Ok(())
+        })();
+        registry.clear();
+        unsafe {
+            let _ = windows::Win32::UI::Input::KeyboardAndMouse::UnregisterHotKey(None, 101);
+        }
+        result.unwrap();
     }
 
     #[test]

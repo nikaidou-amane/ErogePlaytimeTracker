@@ -11,13 +11,19 @@ const game = (game_id: number, title: string, phase: TrackingStatus['games'][num
 
 describe('tracking status presentation', () => {
   it('shows a single starting game by title', () => {
-    const groups = trackingStatusGroups({ games: [game(1, 'Game A', 'starting')] });
+    const groups = trackingStatusGroups({
+      is_paused: false,
+      pause_started_at: null,
+      games: [game(1, 'Game A', 'starting')],
+    });
     expect(groups[0].games[0].session_id).toBeNull();
     expect(trackingStatusText(groups[0])).toBe('Game Aを起動中');
   });
 
   it('shows foreground, background and starting states together', () => {
     const groups = trackingStatusGroups({
+      is_paused: false,
+      pause_started_at: null,
       games: [
         game(1, 'Game A', 'background'),
         game(2, 'Game B', 'foreground'),
@@ -34,6 +40,8 @@ describe('tracking status presentation', () => {
 
   it('groups multiple games in the same phase by count', () => {
     const groups = trackingStatusGroups({
+      is_paused: false,
+      pause_started_at: null,
       games: [game(1, 'Game A', 'background'), game(2, 'Game B', 'background')],
     });
     expect(trackingStatusText(groups[0])).toBe('バックグラウンド 2本');

@@ -6,10 +6,11 @@
   import GameDetail from './components/GameDetail.svelte';
   import AddGame from './components/AddGame.svelte';
   import Settings from './components/Settings.svelte';
+  import TrackingControls from './components/TrackingControls.svelte';
+  import { userErrorMessage } from './lib/errors';
   import UpdatePrompt from './components/UpdatePrompt.svelte';
   import UpdateCompletionNotice from './components/UpdateCompletionNotice.svelte';
   import { api } from './lib/api';
-  import { trackingStatusGroups, trackingStatusText } from './lib/trackingStatus';
   import type {
     BackupImportNotice,
     Theme,
@@ -20,7 +21,7 @@
   let page: Page = 'library',
     gameId = 0,
     refresh = 0,
-    status: TrackingStatus = { games: [] },
+    status: TrackingStatus = { games: [], is_paused: false, pause_started_at: null },
     savedTheme: Theme = 'dark',
     autoCheckUpdates = true,
     excludeBackgroundTime = true,
@@ -31,7 +32,9 @@
     pendingReload = false,
     gameReturnPage: 'library' | 'statistics' = 'library',
     importNotice: BackupImportNotice | null = null,
-    gameOcrError = '';
+    gameOcrError = '',
+    pauseError = '',
+    pauseBusy = false;
   let completionNotice: CompletionNotice | null = null;
   let completionLoaded = false;
   let completionWarning = '';
@@ -63,10 +66,21 @@
     goTo('game');
   };
   const reload = () => refresh++;
-  $: statusGroups = trackingStatusGroups(status);
   const applyTheme = (theme: Theme) => (document.documentElement.dataset.theme = theme);
   function updateStatus(next: TrackingStatus) {
     status = next;
+  }
+  async function togglePause() {
+    if (pauseBusy || startupBlocked) return;
+    pauseBusy = true;
+    pauseError = '';
+    try {
+      updateStatus(await api.setTrackingPaused(!status.is_paused));
+    } catch (cause) {
+      pauseError = userErrorMessage(cause, '一時停止状態を変更できませんでした。');
+    } finally {
+      pauseBusy = false;
+    }
   }
   onMount(() => {
     api
@@ -113,6 +127,7 @@
     const timer = setInterval(() => api.status().then(updateStatus), 3000);
     let off = () => {};
     let offOcr = () => {};
+    let offPause = () => {};
     let destroyed = false;
     listen<TrackingStatus>('tracking-status', (e) => updateStatus(e.payload)).then(
       (f) => (off = f),
@@ -121,11 +136,16 @@
       if (destroyed) f();
       else offOcr = f;
     });
+    listen<string>('tracking-pause-error', (e) => (pauseError = e.payload)).then((f) => {
+      if (destroyed) f();
+      else offPause = f;
+    });
     return () => {
       destroyed = true;
       clearInterval(timer);
       off();
       offOcr();
+      offPause();
     };
   });
 </script>
@@ -155,13 +175,7 @@
       onclick={() => goTo('settings')}>設定</button
     >
   </nav>
-  <div class="tracking-statuses">
-    {#if statusGroups.length === 0}<span class="tracking-status idle">● 待機中</span>{/if}
-    {#each statusGroups as group}<span
-        class="tracking-status {group.phase}"
-        title={group.games.map((game) => game.title).join('\n')}>● {trackingStatusText(group)}</span
-      >{/each}
-  </div>
+  <TrackingControls {status} disabled={startupBlocked} busy={pauseBusy} ontoggle={togglePause} />
 </header>
 <main>
   {#if completionWarning}<div class="app-notice warning" role="alert">
@@ -169,6 +183,10 @@
       <button type="button" aria-label="通知を閉じる" onclick={() => (completionWarning = '')}
         >×</button
       >
+    </div>{/if}
+  {#if pauseError}<div class="app-notice warning" role="alert">
+      <p>{pauseError}</p>
+      <button aria-label="通知を閉じる" onclick={() => (pauseError = '')}>×</button>
     </div>{/if}
   {#if gameOcrError}<div class="app-notice warning" role="alert">
       <div>
@@ -200,6 +218,7 @@
       />{:else if page === 'statistics'}<Statistics
         {openGame}
         trackingActive={status.games.length > 0}
+        calculationKey={`${status.is_paused}:${status.pause_started_at}`}
       />{:else if page === 'game'}<GameDetail
         {excludeBackgroundTime}
         {gameId}
@@ -213,6 +232,10 @@
         }}
         oncancel={() => (page = 'library')}
       />{:else}<Settings
+        {status}
+        {pauseBusy}
+        onstatus={updateStatus}
+        ontogglepause={togglePause}
         trackingActive={status.games.length > 0}
         ontheme={applyTheme}
         ondirty={(dirty) => (settingsDirty = dirty)}
