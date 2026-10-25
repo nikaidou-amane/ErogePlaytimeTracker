@@ -166,6 +166,7 @@ pub struct AppSettings {
     pub theme: String,
     pub screenshot_hotkey: String,
     pub ocr_search_hotkey: String,
+    pub network_proxy: String,
 }
 impl Default for AppSettings {
     fn default() -> Self {
@@ -178,6 +179,7 @@ impl Default for AppSettings {
             theme: "dark".into(),
             screenshot_hotkey: String::new(),
             ocr_search_hotkey: String::new(),
+            network_proxy: String::new(),
         }
     }
 }
@@ -196,6 +198,19 @@ mod settings_tests {
         assert!(settings.exclude_background_time);
         assert_eq!(settings.skipped_update_version, None);
         assert!(settings.ocr_search_hotkey.is_empty());
+        assert!(
+            settings.network_proxy.is_empty(),
+            "older settings keep using the system proxy"
+        );
+    }
+
+    #[test]
+    fn network_proxy_round_trips_through_saved_settings() {
+        let settings: AppSettings =
+            serde_json::from_str(r#"{"network_proxy":"socks5://127.0.0.1:1080"}"#).unwrap();
+        let restored: AppSettings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert_eq!(restored.network_proxy, "socks5://127.0.0.1:1080");
     }
 
     #[test]

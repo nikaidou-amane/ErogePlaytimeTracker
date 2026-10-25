@@ -6,6 +6,7 @@ mod hotkeys;
 mod metadata;
 mod models;
 mod ocr;
+mod proxy;
 mod screenshot;
 mod thumbnail;
 mod tracking;
@@ -31,7 +32,6 @@ pub struct AppState {
     thumbnails: PathBuf,
     screenshots: PathBuf,
     hotkey_service: hotkeys::HotkeyService,
-    http: reqwest::Client,
     backup_operations: Arc<parking_lot::Mutex<()>>,
     quitting: AtomicBool,
     update_notices: parking_lot::Mutex<Option<update_notice::UpdateNotices>>,
@@ -173,7 +173,6 @@ pub fn run() {
                 thumbnails: thumbs,
                 screenshots,
                 hotkey_service,
-                http: reqwest::Client::new(),
                 backup_operations: Arc::new(parking_lot::Mutex::new(())),
                 quitting: AtomicBool::new(false),
                 update_notices: parking_lot::Mutex::new(update_notices),

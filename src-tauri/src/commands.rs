@@ -362,11 +362,19 @@ pub async fn fetch_game_metadata(
 }
 
 async fn metadata_preview(state: &AppState, value: &str) -> anyhow::Result<MetadataPreview> {
-    let mut metadata = crate::metadata::fetch_game(value).await.inspect_err(|e| {
-        log::warn!("metadata fetch/parse failed: {e:#}");
-    })?;
+    // Read the proxy once so the metadata request and its thumbnail use the same
+    // route even if the settings screen saves a new value mid-flight.
+    let proxy =
+        crate::proxy::normalize(&state.settings().network_proxy).map_err(anyhow::Error::msg)?;
+    let mut metadata = crate::metadata::fetch_game(value, proxy.as_deref())
+        .await
+        .inspect_err(|e| {
+            log::warn!("metadata fetch/parse failed: {e:#}");
+        })?;
     let thumbnail_path = if let Some(url) = &metadata.thumbnail_url {
-        match crate::thumbnail::download(&state.http, url, &state.thumbnails).await {
+        match crate::thumbnail::download(&http_client(proxy.as_deref())?, url, &state.thumbnails)
+            .await
+        {
             Ok(path) => Some(path.to_string_lossy().to_string()),
             Err(error) => {
                 log::warn!("thumbnail preview download failed: {error:#}");
@@ -383,6 +391,14 @@ async fn metadata_preview(state: &AppState, value: &str) -> anyhow::Result<Metad
         metadata,
         thumbnail_path,
     })
+}
+
+fn http_client(proxy: Option<&str>) -> anyhow::Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(30));
+    if let Some(proxy) = proxy {
+        builder = builder.proxy(reqwest::Proxy::all(proxy)?);
+    }
+    Ok(builder.build()?)
 }
 #[tauri::command]
 pub fn import_thumbnail(state: State<AppState>, path: String) -> Cmd<String> {
@@ -440,6 +456,11 @@ pub fn update_settings(
     if !matches!(settings.theme.as_str(), "dark" | "light" | "pink" | "blue") {
         return Err(user_error("未対応のカラーテーマです。"));
     }
+    // Reject an unusable proxy here so a typo cannot silently break metadata
+    // fetches and update checks after the setting has already been saved.
+    settings.network_proxy = crate::proxy::normalize(&settings.network_proxy)
+        .map_err(user_error)?
+        .unwrap_or_default();
     let previous = crate::hotkeys::bindings(&state.settings());
     let hotkeys = crate::hotkeys::bindings(&settings);
     state

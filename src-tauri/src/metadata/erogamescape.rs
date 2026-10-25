@@ -7,12 +7,15 @@ pub struct ErogameScapeProvider {
     client: reqwest::Client,
 }
 impl ErogameScapeProvider {
-    pub fn new() -> Result<Self> {
+    pub fn with_proxy(proxy: Option<&str>) -> Result<Self> {
+        let mut builder = reqwest::Client::builder()
+            .user_agent("ErogePlaytimeTracker/0.1 (personal metadata client)")
+            .timeout(std::time::Duration::from_secs(15));
+        if let Some(proxy) = proxy {
+            builder = builder.proxy(reqwest::Proxy::all(proxy)?);
+        }
         Ok(Self {
-            client: reqwest::Client::builder()
-                .user_agent("ErogePlaytimeTracker/0.1 (personal metadata client)")
-                .timeout(std::time::Duration::from_secs(15))
-                .build()?,
+            client: builder.build()?,
         })
     }
     fn id(input: &str) -> Result<i64> {

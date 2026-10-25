@@ -121,13 +121,19 @@ pub trait GameMetadataProvider: Send + Sync {
     async fn fetch_game(&self, input: &str) -> Result<GameMetadata>;
 }
 
-pub async fn fetch_game(input: &str) -> Result<GameMetadata> {
+pub async fn fetch_game(input: &str, proxy: Option<&str>) -> Result<GameMetadata> {
     let source = MetadataIdentity::parse(input)?;
     match source {
         MetadataIdentity::ErogameScape(_) => {
-            ErogameScapeProvider::new()?.fetch_game(&source.url()).await
+            ErogameScapeProvider::with_proxy(proxy)?
+                .fetch_game(&source.url())
+                .await
         }
-        MetadataIdentity::Vndb(_) => VndbProvider::new()?.fetch_game(&source.url()).await,
+        MetadataIdentity::Vndb(_) => {
+            VndbProvider::with_proxy(proxy)?
+                .fetch_game(&source.url())
+                .await
+        }
     }
 }
 

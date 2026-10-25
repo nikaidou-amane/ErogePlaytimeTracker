@@ -1344,6 +1344,7 @@ mod tests {
                     theme: "blue".into(),
                     screenshot_hotkey: "F10".into(),
                     ocr_search_hotkey: "Ctrl+F10".into(),
+                    network_proxy: "http://127.0.0.1:7890".into(),
                 })
                 .unwrap(),
             )

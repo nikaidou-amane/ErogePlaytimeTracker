@@ -7,6 +7,7 @@
 
   export let autoCheck = true;
   export let skippedVersion: string | null = null;
+  export let networkProxy = '';
   export let trackingActive = false;
   export let onskip: (version: string) => void = () => {};
 
@@ -27,7 +28,7 @@
       return;
     }
     if (!autoCheck) return;
-    check()
+    check(networkProxy ? { proxy: networkProxy } : {})
       .then((result) => {
         if (result?.version !== skippedVersion) update = result;
       })

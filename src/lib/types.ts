@@ -162,6 +162,7 @@ export interface Settings {
   theme: Theme;
   screenshot_hotkey: string;
   ocr_search_hotkey: string;
+  network_proxy: string;
 }
 export interface TrackingStatus {
   games: Array<{

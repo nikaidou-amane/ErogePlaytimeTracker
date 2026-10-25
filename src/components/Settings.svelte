@@ -26,6 +26,7 @@
       theme: 'dark',
       screenshot_hotkey: '',
       ocr_search_hotkey: '',
+      network_proxy: '',
     },
     message = '',
     error = '',
@@ -201,7 +202,9 @@
         updateStatus = `バージョン ${availableVersion} を利用できます。`;
         return;
       }
-      availableUpdate = await check();
+      availableUpdate = await check(
+        settings.network_proxy ? { proxy: settings.network_proxy } : {},
+      );
       updateStatus = availableUpdate
         ? `バージョン ${availableUpdate.version} を利用できます。`
         : '現在のバージョンが最新です。';
@@ -488,6 +491,17 @@
   <p class="hint">
     キーの設定中は任意のキーまたはキーの組み合わせを押してください。Escでキャンセルします。
   </p>
+  <div class="update-setting">
+    <div>
+      <span class="setting-label">ネットワークプロキシ</span>
+      <p class="hint">
+        メタデータ取得と更新確認で使用します。空欄ならOSのプロキシ設定を使用します。
+      </p>
+    </div>
+    <div class="update-setting-actions">
+      <input bind:value={settings.network_proxy} placeholder="例: http://127.0.0.1:7890" />
+    </div>
+  </div>
   {#if hotkeyStatus}<p class="hotkey-status">{hotkeyStatus}</p>{/if}
   {#if hotkeyError}<p class="error">{hotkeyError}</p>{/if}
   <div class="update-setting">

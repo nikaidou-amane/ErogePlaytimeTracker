@@ -7,12 +7,15 @@ pub struct VndbProvider {
     client: reqwest::Client,
 }
 impl VndbProvider {
-    pub fn new() -> Result<Self> {
+    pub fn with_proxy(proxy: Option<&str>) -> Result<Self> {
+        let mut builder = reqwest::Client::builder()
+            .user_agent(concat!("ErogePlaytimeTracker/", env!("CARGO_PKG_VERSION")))
+            .timeout(std::time::Duration::from_secs(15));
+        if let Some(proxy) = proxy {
+            builder = builder.proxy(reqwest::Proxy::all(proxy)?);
+        }
         Ok(Self {
-            client: reqwest::Client::builder()
-                .user_agent(concat!("ErogePlaytimeTracker/", env!("CARGO_PKG_VERSION")))
-                .timeout(std::time::Duration::from_secs(15))
-                .build()?,
+            client: builder.build()?,
         })
     }
 }

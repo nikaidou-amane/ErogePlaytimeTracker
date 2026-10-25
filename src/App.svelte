@@ -24,6 +24,7 @@
     savedTheme: Theme = 'dark',
     autoCheckUpdates = true,
     excludeBackgroundTime = true,
+    networkProxy = '',
     skippedUpdateVersion: string | null = null,
     settingsLoaded = false,
     settingsDirty = false,
@@ -75,6 +76,7 @@
         savedTheme = v.theme;
         autoCheckUpdates = v.auto_check_updates;
         excludeBackgroundTime = v.exclude_background_time;
+        networkProxy = v.network_proxy;
         skippedUpdateVersion = v.skipped_update_version;
         applyTheme(v.theme);
       })
@@ -220,6 +222,7 @@
           savedTheme = settings.theme;
           autoCheckUpdates = settings.auto_check_updates;
           excludeBackgroundTime = settings.exclude_background_time;
+          networkProxy = settings.network_proxy;
           skippedUpdateVersion = settings.skipped_update_version;
         }}
       />{/if}
@@ -238,6 +241,7 @@
 {#if settingsLoaded && !startupBlocked}
   <UpdatePrompt
     autoCheck={autoCheckUpdates}
+    {networkProxy}
     skippedVersion={skippedUpdateVersion}
     trackingActive={status.games.length > 0}
     onskip={(version) => (skippedUpdateVersion = version)}
