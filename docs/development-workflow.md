@@ -176,15 +176,16 @@ update/a <- update/b
 
 ## Repository enforcement
 
-GitHub rulesetは`main`を対象にし、pull requestを必須とします。通常運用のbypass actorとapproval requirementは設定せず、required PR checksを通過したownerがmergeします。repository管理画面ではmerge commitを許可し、squash/rebase mergeを無効にします。
+GitHub rulesetは`main`を対象にし、pull requestとrequired PR checksを必須とします。別の承認用rulesetでapprovalを1件以上、Code Ownerの承認を必須とし、`.github/CODEOWNERS`で全fileのownerを`@tinypark2010`に指定します。承認用rulesetだけはRepository adminに`For pull requests only`のbypassを許可し、owner自身のPRも承認なしでmergeできるようにします。CI必須rulesetにはbypass actorを追加せず、ownerのPRもCI通過を必須にします。repository管理画面ではmerge commitを許可し、squash/rebase mergeを無効にします。
 
 `.github/workflows/ci.yml`はstacked PRを含むすべてのpull requestでcommit policy、frontend/Rust checks、tests、build、dependency license生成を実行します。既存のrelease workflowはtag publish専用です。
 
 このworkflowが一度成功した後、GitHubのrepository settingsで次を設定します。
 
 1. `main`を対象にするactive rulesetを作成する。
-2. `Require a pull request before merging`を有効にし、required approvalsは0にする。
-3. bypass actorを追加しない。
-4. `Audit Rust dependency licenses`と`Verify pull request`をrequired status checksにする。
-5. repositoryのpull request merge methodは`Create a merge commit`だけを有効にする。
-6. `main`とactive stacked PRのbase branchを削除対象から保護する。
+2. CI必須rulesetでは`Require a pull request before merging`を有効にし、required approvalsは0、bypass actorはなしにする。
+3. CI必須rulesetで`Audit Rust dependency licenses`と`Verify pull request`をrequired status checksにする。
+4. 別の承認用rulesetで`Require a pull request before merging`、required approvals 1、`Require review from Code Owners`、`Dismiss stale pull request approvals when new commits are pushed`を有効にする。
+5. 承認用rulesetのbypass listにRepository adminだけを追加し、`For pull requests only`にする。ownerは自身のPRをbypassでmergeでき、他のcollaboratorはownerの承認が必要になる。
+6. repositoryのpull request merge methodは`Create a merge commit`だけを有効にする。
+7. `main`とactive stacked PRのbase branchを削除対象から保護する。
