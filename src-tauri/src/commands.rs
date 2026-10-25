@@ -234,7 +234,11 @@ pub fn launch_game(state: State<AppState>, game_id: i64) -> Cmd<()> {
             "実行ファイルが見つかりません。登録内容を確認してください。",
         ));
     }
-    let mut command = std::process::Command::new(executable);
+    let command_line = state.db.launch_command(game_id).map_err(err)?;
+    let (program, arguments) =
+        crate::launch::resolve(command_line.as_deref(), executable).map_err(user_error)?;
+    let mut command = std::process::Command::new(&program);
+    command.args(&arguments);
     if let Some(directory) = executable.parent() {
         command.current_dir(directory);
     }
@@ -242,6 +246,17 @@ pub fn launch_game(state: State<AppState>, game_id: i64) -> Cmd<()> {
         log::error!("failed to launch registered game executable: {e}");
         user_error("ゲームを起動できませんでした。実行ファイルを確認してください。")
     })
+}
+#[tauri::command]
+pub fn set_launch_command(
+    state: State<AppState>,
+    game_id: i64,
+    command: Option<String>,
+) -> Cmd<()> {
+    state
+        .db
+        .set_launch_command(game_id, command.as_deref())
+        .map_err(err)
 }
 #[tauri::command]
 pub fn list_sessions(state: State<AppState>, game_id: i64) -> Cmd<Vec<PlaySession>> {

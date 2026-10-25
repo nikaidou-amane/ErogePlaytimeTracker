@@ -31,6 +31,7 @@ pub struct GameDetail {
     pub metadata_source: Option<String>,
     pub source_url: Option<String>,
     pub executables: Vec<Executable>,
+    pub launch_command: Option<String>,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct PlaySession {

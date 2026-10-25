@@ -1327,6 +1327,7 @@ mod tests {
                  DROP INDEX idx_games_vndb_id;
                  ALTER TABLE games DROP COLUMN vndb_id;
                  ALTER TABLE games DROP COLUMN metadata_source;
+                 ALTER TABLE games DROP COLUMN launch_command;
                  DELETE FROM schema_migrations WHERE version>=5;",
             )
             .unwrap();

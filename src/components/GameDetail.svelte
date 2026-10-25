@@ -92,6 +92,9 @@
     intervalEditEnd = '',
     intervalEditError = '',
     savingIntervalId: number | null = null;
+  let launchCommandDraft = '',
+    launchCommandSaving = false,
+    launchCommandEditing = false;
   let gameStatisticsRequestSequence = 0;
   let trackingStateKey = '';
   let thumbnailEditorOpen = false,
@@ -589,6 +592,28 @@
       showToast('ゲーム情報を保存しました');
     } catch (e) {
       showToast(userErrorMessage(e, 'ゲーム情報を保存できませんでした。'), true);
+    }
+  }
+  function beginLaunchCommandEdit() {
+    if (!game) return;
+    launchCommandDraft = game.launch_command ?? '';
+    launchCommandEditing = true;
+  }
+  function cancelLaunchCommandEdit() {
+    launchCommandEditing = false;
+  }
+  async function saveLaunchCommand() {
+    if (!game) return;
+    launchCommandSaving = true;
+    try {
+      await api.setLaunchCommand(game.id, launchCommandDraft.trim() || null);
+      launchCommandEditing = false;
+      await load(true);
+      showToast('起動コマンドを保存しました');
+    } catch (e) {
+      showToast(userErrorMessage(e, '起動コマンドを保存できませんでした。'), true);
+    } finally {
+      launchCommandSaving = false;
     }
   }
   async function openSourceUrl() {
@@ -1092,6 +1117,30 @@
             onclick={selectExe}>参照…</button
           ><button onclick={addExe}>追加</button>
         </div>
+        <h3>起動コマンド</h3>
+        {#if launchCommandEditing}
+          <p class="hint">
+            未入力なら上の実行ファイルを起動します。相対パスは実行ファイルと同じフォルダを基準にします。
+          </p>
+          <div class="row executable-add-row">
+            <input
+              bind:value={launchCommandDraft}
+              placeholder="例: game.exe -w"
+              disabled={launchCommandSaving}
+            /><button type="button" onclick={saveLaunchCommand} disabled={launchCommandSaving}
+              >保存</button
+            ><button type="button" onclick={cancelLaunchCommandEdit} disabled={launchCommandSaving}
+              >キャンセル</button
+            >
+          </div>
+        {:else}
+          <div class="listrow">
+            <code>{game.launch_command ?? '未設定（実行ファイルを直接起動）'}</code><button
+              type="button"
+              onclick={beginLaunchCommandEdit}>編集</button
+            >
+          </div>
+        {/if}
       </div>
     </section>
     <section class="panel game-statistics-panel">

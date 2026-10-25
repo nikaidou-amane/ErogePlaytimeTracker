@@ -361,6 +361,7 @@ mod tests {
                 thumbnail_path: None,
                 source: None,
                 executable_paths: vec![],
+                launch_command: None,
             },
             None,
         )

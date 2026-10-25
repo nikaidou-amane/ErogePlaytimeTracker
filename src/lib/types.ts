@@ -33,6 +33,7 @@ export interface GameDetail extends GameSummary {
   metadata_source: MetadataProvider | null;
   source_url: string | null;
   executables: Executable[];
+  launch_command: string | null;
 }
 export interface Session {
   id: number;
