@@ -1476,71 +1476,6 @@ header > nav {
 .update-release-notes li + li {
   margin-top: 0.4rem;
 }
-.theme-preview {
-  display: flex;
-  gap: 0.45rem;
-  margin-top: -0.5rem;
-}
-.hotkey-setting {
-  display: grid;
-  gap: 0.6rem;
-  margin: 1rem 0;
-}
-.hotkey-setting .setting-label {
-  display: block;
-}
-.update-setting {
-  display: grid;
-  gap: 0.65rem;
-  margin: 1rem 0;
-}
-.update-setting p {
-  margin: 0;
-}
-.update-setting .update-auto-check {
-  margin: 0;
-}
-.update-setting-actions {
-  display: grid;
-  gap: 0.65rem;
-}
-.update-setting-buttons {
-  display: flex;
-  gap: 0.65rem;
-  flex-wrap: wrap;
-}
-.update-setting-feedback {
-  display: grid;
-  gap: 0.35rem;
-  min-width: 0;
-}
-.update-setting-feedback p {
-  margin: 0;
-}
-.update-setting progress {
-  width: 100%;
-}
-.backup-setting {
-  display: grid;
-  gap: 0.65rem;
-  margin: 1rem 0;
-  padding-top: 1rem;
-  border-top: 1px solid #ffffff1c;
-}
-.backup-setting p {
-  margin: 0;
-}
-.backup-setting-actions {
-  display: flex;
-  gap: 0.65rem;
-  flex-wrap: wrap;
-}
-.backup-setting .backup-option {
-  margin: 0;
-}
-.backup-setting-feedback {
-  min-height: 1.3rem;
-}
 .backup-progress {
   display: grid;
   gap: 0.35rem;
@@ -1626,10 +1561,6 @@ header > nav {
   border-color: #a88aff;
   box-shadow: 0 0 0 3px #a88aff28;
 }
-.hotkey-setting .hint,
-.hotkey-setting p {
-  margin: 0;
-}
 :root[data-theme]:not([data-theme='dark']) .hotkey-recorder kbd {
   border-color: #0002;
 }
@@ -1663,40 +1594,6 @@ header > nav {
 :root .hotkey-recorder.invalid.recording kbd {
   border-color: #e05d6f;
   box-shadow: 0 0 0 3px #e05d6f2e;
-}
-.theme-dot {
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border-radius: 50%;
-  border: 2px solid #777;
-}
-.theme-dot:hover {
-  transform: scale(1.08);
-}
-.theme-dot.selected {
-  outline: 2px solid currentColor;
-  outline-offset: 2px;
-}
-button.theme-dark,
-:root[data-theme] button.theme-dark,
-:root[data-theme] button.theme-dark:hover {
-  background: #1b1922;
-}
-button.theme-light,
-:root[data-theme] button.theme-light,
-:root[data-theme] button.theme-light:hover {
-  background: #faf9fc;
-}
-button.theme-pink,
-:root[data-theme] button.theme-pink,
-:root[data-theme] button.theme-pink:hover {
-  background: #ffdce9;
-}
-button.theme-blue,
-:root[data-theme] button.theme-blue,
-:root[data-theme] button.theme-blue:hover {
-  background: #dcecff;
 }
 :root[data-theme='light'] {
   color: #292633;
@@ -1875,7 +1772,6 @@ button.primary:disabled:hover {
   border-color: #c4894e66;
   background: #fff0dd;
 }
-:root[data-theme]:not([data-theme='dark']) .backup-setting,
 :root[data-theme]:not([data-theme='dark']) .backup-import-summary,
 :root[data-theme]:not([data-theme='dark']) .backup-import-summary > div + div {
   border-color: #00000018;
@@ -3817,6 +3713,32 @@ button.primary:disabled:hover {
   flex-shrink: 0;
   vertical-align: middle;
 }
+.settings-page-heading {
+  position: sticky;
+  top: 62px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0 20px;
+  margin: -12px 0 24px;
+  background: var(--settings-page-bg);
+  border-bottom: 1px solid var(--settings-border);
+}
+.settings-page-heading h1 {
+  margin: 0;
+  font-size: 25px;
+}
+.settings-save-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.settings-save-actions > span {
+  font-size: 12px;
+  color: var(--settings-muted);
+}
 .settings-page button,
 .pause-dialog button {
   display: inline-flex;
@@ -3824,8 +3746,60 @@ button.primary:disabled:hover {
   justify-content: center;
   gap: 8px;
 }
+.settings-save {
+  min-width: 134px;
+}
+.settings-layout {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 32px;
+}
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: sticky;
+  top: 160px;
+  align-self: start;
+}
+.settings-nav a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--settings-muted);
+  text-decoration: none;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.settings-nav a:hover,
+.settings-nav a:focus-visible {
+  color: var(--settings-text);
+  background: var(--settings-soft);
+}
+.settings-sections {
+  display: grid;
+  gap: 34px;
+  padding-bottom: 32px;
+}
+.settings-section {
+  scroll-margin-top: 150px;
+  min-width: 0;
+}
+.settings-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+}
 .settings-section-heading > .settings-icon {
   color: var(--settings-accent);
+}
+.settings-section-heading h2 {
+  font-size: 16px;
+  margin: 0;
+  font-weight: 600;
 }
 .settings-scope {
   font-size: 11px;
@@ -4050,6 +4024,26 @@ button.primary:disabled:hover {
   width: 16px;
   height: 16px;
 }
+.settings-hotkey-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(275px, 1.4fr);
+  gap: 20px;
+  padding: 20px 24px;
+  align-items: center;
+}
+.settings-hotkey-row + .settings-hotkey-row {
+  border-top: 1px solid var(--settings-border);
+}
+.settings-shortcuts .hotkey-recorder {
+  gap: 8px;
+  min-width: 0;
+}
+.settings-shortcuts .hotkey-recorder kbd {
+  min-width: 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
 .settings-shortcuts .hotkey-recorder > button:not(.settings-icon-button) {
   padding: 9px 12px;
   white-space: nowrap;
@@ -4073,18 +4067,153 @@ button.primary:disabled:hover {
   background: transparent;
   border-color: transparent;
 }
+.settings-shortcuts > .error,
+.settings-shortcuts > .hotkey-status {
+  margin: 0;
+  padding: 0 24px 18px;
+}
+.settings-theme-field {
+  padding: 20px 24px 24px;
+  border-bottom: 1px solid var(--settings-border);
+}
+.settings-theme-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+:root[data-theme] .settings-theme-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 8px;
+  border-color: var(--settings-border);
+  background: transparent;
+  color: var(--settings-text);
+  border-radius: 9px;
+}
+:root[data-theme] .settings-theme-option:hover {
+  background: var(--settings-soft);
+}
+:root[data-theme] .settings-theme-option[aria-pressed='true'] {
+  border-color: var(--settings-accent);
+  box-shadow: 0 0 0 1px var(--settings-accent);
+}
+.settings-theme-option > span:last-child {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 20px;
+  font-size: 12px;
+}
 .settings-theme-option .settings-icon {
   width: 14px;
   height: 14px;
   color: var(--settings-accent);
 }
+.settings-theme-mini {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  height: 57px;
+  padding: 8px;
+  border-radius: 4px;
+  background: #111018;
+  width: 100%;
+}
+.settings-theme-mini > span {
+  grid-column: span 2;
+  background: #393145;
+  height: 5px;
+  width: 45%;
+  border-radius: 2px;
+}
+.settings-theme-mini i {
+  background: #27222f;
+  border: 1px solid #41364f;
+  border-radius: 3px;
+}
+.preview-light .settings-theme-mini {
+  background: #f1eef5;
+}
+.preview-light .settings-theme-mini > span {
+  background: #9783b6;
+}
+.preview-light .settings-theme-mini i {
+  background: #fff;
+  border-color: #d5cce1;
+}
+.preview-pink .settings-theme-mini {
+  background: #fce9f2;
+}
+.preview-pink .settings-theme-mini > span {
+  background: #c9769c;
+}
+.preview-pink .settings-theme-mini i {
+  background: #fffafd;
+  border-color: #eac0d4;
+}
+.preview-blue .settings-theme-mini {
+  background: #e9f3ff;
+}
+.preview-blue .settings-theme-mini > span {
+  background: #699dc9;
+}
+.preview-blue .settings-theme-mini i {
+  background: #fff;
+  border-color: #bed6ec;
+}
+.settings-version > span {
+  color: var(--settings-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
 .settings-row > button {
   white-space: nowrap;
+}
+.settings-feedback {
+  padding: 16px 24px;
+  border-top: 1px solid var(--settings-border);
+}
+.settings-feedback p {
+  margin: 0 0 8px;
+  line-height: 1.6;
+}
+.settings-feedback p:last-child {
+  margin-bottom: 0;
+}
+.settings-feedback progress {
+  width: 100%;
+}
+.settings-data-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  padding: 24px;
+}
+:root[data-theme] .settings-data-actions > button {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  text-align: left;
+  justify-items: start;
+  padding: 16px;
+  background: transparent;
+  border-color: var(--settings-border);
+  color: var(--settings-text);
+  gap: 7px 10px;
+}
+:root[data-theme] .settings-data-actions > button:hover {
+  background: var(--settings-soft);
 }
 .settings-data-actions .settings-icon {
   grid-row: span 2;
   align-self: center;
   color: var(--settings-accent);
+}
+.settings-data-actions strong {
+  font-weight: 500;
+  font-size: 14px;
 }
 .settings-data-actions + .settings-row {
   border-top: 1px solid var(--settings-border);
@@ -4355,17 +4484,55 @@ button.primary:disabled:hover {
   margin: 0;
 }
 @media (max-width: 1000px) {
+  .settings-layout {
+    grid-template-columns: 140px minmax(0, 1fr);
+    gap: 20px;
+  }
+  .settings-hotkey-row {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .settings-hotkey-label {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
   .settings-pause-state > span {
     line-height: 1.6;
   }
 }
 @media (max-width: 780px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .settings-nav {
+    position: static;
+    flex-direction: row;
+    gap: 2px;
+    overflow: auto;
+    padding-bottom: 4px;
+  }
+  .settings-nav a {
+    padding: 10px;
+    font-size: 12px;
+    gap: 7px;
+  }
   .settings-nav .settings-icon {
     width: 16px;
     height: 16px;
   }
+  .settings-section {
+    scroll-margin-top: 150px;
+  }
+  .settings-page-heading {
+    margin-bottom: 12px;
+  }
 }
 @media (max-width: 540px) {
+  .settings-save-actions > span {
+    display: none;
+  }
   .settings-pause-control {
     flex-wrap: wrap;
   }
@@ -4375,6 +4542,12 @@ button.primary:disabled:hover {
   .settings-pause-links {
     flex-wrap: wrap;
     gap: 8px;
+  }
+  .settings-theme-options {
+    gap: 7px;
+  }
+  .settings-data-actions {
+    grid-template-columns: 1fr;
   }
   .pause-dialog-heading,
   .pause-dialog-footer {
@@ -4398,6 +4571,7 @@ button.primary:disabled:hover {
     flex-wrap: wrap;
   }
 }
+
 @media (min-width: 701px) and (max-width: 1100px) {
   header {
     gap: 12px;
@@ -4427,6 +4601,7 @@ button.primary:disabled:hover {
     display: block;
   }
 }
+
 .session-time-summary {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }

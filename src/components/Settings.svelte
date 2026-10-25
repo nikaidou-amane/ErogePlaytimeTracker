@@ -24,12 +24,25 @@
   export let ontogglepause: () => void = () => {};
   export let pauseBusy = false;
   let historyOpen = false;
-
+  let saving = false;
+  const categories = [
+    { id: 'tracking', label: 'プレイ時間', icon: 'clock' },
+    { id: 'shortcuts', label: 'ショートカット', icon: 'keyboard' },
+    { id: 'appearance', label: '表示と動作', icon: 'palette' },
+    { id: 'updates', label: '更新', icon: 'refresh' },
+    { id: 'data', label: 'データ', icon: 'database' },
+  ] as const;
+  const themes = [
+    { value: 'dark', label: 'ダーク' },
+    { value: 'light', label: 'ライト' },
+    { value: 'pink', label: 'ピンク' },
+    { value: 'blue', label: 'ブルー' },
+  ] as const;
   type HotkeyField = 'screenshot_hotkey' | 'ocr_search_hotkey' | 'tracking_pause_hotkey';
   const hotkeyFields: Array<{ field: HotkeyField; label: string }> = [
-    { field: 'screenshot_hotkey', label: 'スクリーンショットキー' },
-    { field: 'ocr_search_hotkey', label: 'ゲーム画面のOCR検索キー' },
-    { field: 'tracking_pause_hotkey', label: '計測の一時停止／再開キー' },
+    { field: 'screenshot_hotkey', label: 'スクリーンショット' },
+    { field: 'ocr_search_hotkey', label: 'OCR検索' },
+    { field: 'tracking_pause_hotkey', label: '計測の一時停止／再開' },
   ];
   let recordingHotkey: HotkeyField | null = null;
   let settings: Settings = {
@@ -69,11 +82,11 @@
   $: availableVersion = availableUpdate?.version ?? '0.1.6';
   let savedSettings: Settings | null = null,
     lastDirty = false;
+  $: dirty =
+    recordingHotkey !== null ||
+    checkingHotkey ||
+    (savedSettings !== null && JSON.stringify(settings) !== JSON.stringify(savedSettings));
   $: {
-    const dirty =
-      recordingHotkey !== null ||
-      checkingHotkey ||
-      (savedSettings !== null && JSON.stringify(settings) !== JSON.stringify(savedSettings));
     if (dirty !== lastDirty) {
       lastDirty = dirty;
       ondirty(dirty);
@@ -106,15 +119,14 @@
       api.cancelBackupImport(importPreview.import_id).catch(() => {});
     }
   });
-  function previewTheme() {
-    ontheme(settings.theme);
-  }
   function selectTheme(theme: Theme) {
     settings.theme = theme;
     ontheme(theme);
   }
   async function save() {
-    if (recordingHotkey || checkingHotkey) return;
+    if (recordingHotkey || checkingHotkey || saving) return;
+    saving = true;
+    message = error = '';
     try {
       await api.updateSettings(settings);
       settings = await api.settings();
@@ -126,11 +138,14 @@
       hotkeyError = '';
     } catch (e) {
       const saveError = userErrorMessage(e, '設定を保存できませんでした。');
+      error = saveError;
       if (saveError.includes('キー') || saveError.includes('ホット')) {
         hotkeyError = saveError;
       } else {
         error = saveError;
       }
+    } finally {
+      saving = false;
     }
   }
   function hotkeyFromEvent(event: KeyboardEvent) {
@@ -414,247 +429,308 @@
 
 <svelte:window onkeydown={recordHotkey} />
 
-<section class="panel form settings-page">
-  <h1>設定</h1>
-  <label
-    >カラーテーマ<select bind:value={settings.theme} onchange={previewTheme}
-      ><option value="dark">ダーク</option><option value="light">ライト</option><option value="pink"
-        >ピンク</option
-      ><option value="blue">ブルー</option></select
-    ></label
-  >
-  <div class="theme-preview" role="group" aria-label="カラーテーマを選択">
-    <button
-      type="button"
-      class="theme-dot theme-dark"
-      class:selected={settings.theme === 'dark'}
-      aria-label="ダークテーマを選択"
-      aria-pressed={settings.theme === 'dark'}
-      onclick={() => selectTheme('dark')}
-    ></button><button
-      type="button"
-      class="theme-dot theme-light"
-      class:selected={settings.theme === 'light'}
-      aria-label="ライトテーマを選択"
-      aria-pressed={settings.theme === 'light'}
-      onclick={() => selectTheme('light')}
-    ></button><button
-      type="button"
-      class="theme-dot theme-pink"
-      class:selected={settings.theme === 'pink'}
-      aria-label="ピンクテーマを選択"
-      aria-pressed={settings.theme === 'pink'}
-      onclick={() => selectTheme('pink')}
-    ></button><button
-      type="button"
-      class="theme-dot theme-blue"
-      class:selected={settings.theme === 'blue'}
-      aria-label="ブルーテーマを選択"
-      aria-pressed={settings.theme === 'blue'}
-      onclick={() => selectTheme('blue')}
-    ></button>
-  </div>
-  <label class="check"
-    ><input type="checkbox" bind:checked={settings.autostart} /> Windowsログイン時に自動起動</label
-  ><label class="check"
-    ><input type="checkbox" bind:checked={settings.close_to_tray} /> ウィンドウを閉じたらトレイへ格納</label
-  >
-  <label class="check"
-    ><input
-      type="checkbox"
-      bind:checked={settings.exclude_background_time}
-      aria-describedby="background-playtime-help"
-    /> バックグラウンド時間をプレイ時間から除外する</label
-  >
-  <p class="hint" id="background-playtime-help">
-    初期設定はオンです。オフにするとバックグラウンド時間もプレイ時間に含めます。一時停止時間は別の設定に従います。
-    保存すると、すべてのゲームの過去の履歴・統計にも反映されます。
-    どちらの設定でもバックグラウンド時間の記録は続けるため、あとから切り替えられます。
-  </p>
-  <div class="settings-card">
-    <div class="settings-pause-control" class:is-paused={status.is_paused}>
-      <span class="settings-pause-symbol"
-        ><SettingsIcon name={status.is_paused ? 'pause' : 'clock'} /></span
+<section class="settings-page">
+  <div class="settings-page-heading">
+    <h1>設定</h1>
+    <div class="settings-save-actions">
+      <span aria-live="polite">{dirty ? '未保存の変更' : message}</span>
+      <button
+        class="primary settings-save"
+        disabled={!savedSettings || !dirty || saving || recordingHotkey !== null || checkingHotkey}
+        onclick={save}><SettingsIcon name="check" />{saving ? '保存中…' : '変更を保存'}</button
       >
-      <div class="settings-pause-state">
-        <div class="settings-pause-title">
-          <strong>プレイ時間の計測</strong>{#if status.is_paused}<span class="pause-live-tag"
-              >一時停止中</span
-            >{/if}
+    </div>
+  </div>
+  {#if error}<p class="error" role="alert">{error}</p>{/if}
+  <div class="settings-layout">
+    <nav class="settings-nav" aria-label="設定カテゴリ">
+      {#each categories as category}<a href={`#settings-${category.id}`}
+          ><SettingsIcon name={category.icon} />{category.label}</a
+        >{/each}
+    </nav>
+    <div class="settings-sections">
+      <section
+        id="settings-tracking"
+        class="settings-section"
+        aria-labelledby="settings-tracking-title"
+      >
+        <div class="settings-section-heading">
+          <SettingsIcon name="clock" />
+          <h2 id="settings-tracking-title">プレイ時間</h2>
+          <span class="settings-scope">全ゲーム共通</span>
         </div>
-        <span
-          >{status.is_paused
-            ? savedSettings?.exclude_pause_time
-              ? 'プレイ時間から除外中'
-              : '停止時間をプレイ時間に含む設定です'
-            : 'ゲーム起動時に自動で計測'}</span
-        >
-      </div>
-      <button class="settings-pause-toggle" disabled={pauseBusy} onclick={ontogglepause}
-        ><SettingsIcon name={status.is_paused ? 'play' : 'pause'} />{status.is_paused
-          ? '計測を再開'
-          : '計測を一時停止'}</button
-      >
-    </div>
-    <div class="settings-pause-links">
-      <a href="#settings-shortcuts"
-        ><SettingsIcon name="keyboard" /><span>停止・再開キー</span><kbd
-          >{settings.tracking_pause_hotkey || 'キー未設定'}</kbd
-        ></a
-      ><button
-        class="settings-text-button"
-        disabled={recordingHotkey !== null || checkingHotkey}
-        onclick={() => (historyOpen = true)}
-        ><SettingsIcon name="history" />一時停止の履歴<SettingsIcon name="arrow" /></button
-      >
-    </div>
-    <label class="settings-row settings-switch-row"
-      ><span><strong>一時停止時間を除外</strong><small>プレイ時間に含めない</small></span><input
-        class="settings-switch"
-        type="checkbox"
-        role="switch"
-        bind:checked={settings.exclude_pause_time}
-      /></label
-    >
-    <div class="settings-card-note">
-      <SettingsIcon name="history" /><span>過去の履歴・統計にも適用</span>
-    </div>
-  </div>
-
-  {#each hotkeyFields as { field, label }}
-    <div
-      class="hotkey-setting"
-      id={field === 'tracking_pause_hotkey' ? 'settings-shortcuts' : undefined}
-    >
-      <span class="setting-label">{label}</span>
-      <div
-        class:recording={recordingHotkey === field}
-        class:invalid={Boolean(hotkeyError)}
-        class="hotkey-recorder"
-      >
-        <kbd
-          >{recordingHotkey === field
-            ? '設定したいキーを押してください…'
-            : settings[field] || '未設定'}</kbd
-        >
-        <button
-          type="button"
-          disabled={checkingHotkey || recordingHotkey !== null}
-          onclick={() => startHotkeyRecording(field)}
-        >
-          {settings[field] ? '変更' : 'キーを設定'}
-        </button>
-        {#if settings[field]}
-          <button
-            type="button"
-            disabled={checkingHotkey || recordingHotkey !== null}
-            onclick={() => clearHotkey(field)}>解除</button
+        <div class="settings-card">
+          <div class="settings-pause-control" class:is-paused={status.is_paused}>
+            <span class="settings-pause-symbol"
+              ><SettingsIcon name={status.is_paused ? 'pause' : 'clock'} /></span
+            >
+            <div class="settings-pause-state">
+              <div class="settings-pause-title">
+                <strong>プレイ時間の計測</strong>{#if status.is_paused}<span class="pause-live-tag"
+                    >一時停止中</span
+                  >{/if}
+              </div>
+              <span
+                >{status.is_paused
+                  ? savedSettings?.exclude_pause_time
+                    ? 'プレイ時間から除外中'
+                    : '停止時間をプレイ時間に含む設定です'
+                  : 'ゲーム起動時に自動で計測'}</span
+              >
+            </div>
+            <button class="settings-pause-toggle" disabled={pauseBusy} onclick={ontogglepause}
+              ><SettingsIcon name={status.is_paused ? 'play' : 'pause'} />{status.is_paused
+                ? '計測を再開'
+                : '計測を一時停止'}</button
+            >
+          </div>
+          <div class="settings-pause-links">
+            <a href="#settings-shortcuts"
+              ><SettingsIcon name="keyboard" /><span>停止・再開キー</span><kbd
+                >{settings.tracking_pause_hotkey || 'キー未設定'}</kbd
+              ></a
+            ><button
+              class="settings-text-button"
+              disabled={recordingHotkey !== null || checkingHotkey}
+              onclick={() => (historyOpen = true)}
+              ><SettingsIcon name="history" />一時停止の履歴<SettingsIcon name="arrow" /></button
+            >
+          </div>
+          <label class="settings-row settings-switch-row"
+            ><span><strong>一時停止時間を除外</strong><small>プレイ時間に含めない</small></span
+            ><input
+              class="settings-switch"
+              type="checkbox"
+              role="switch"
+              bind:checked={settings.exclude_pause_time}
+            /></label
           >
-        {/if}
-      </div>
-      {#if field === 'ocr_search_hotkey'}
-        <p class="hint">
-          計測中のゲームを前面にしてキーを押し、調べたい文字をドラッグするとGoogle検索します。Esc・右クリックで中止できます。
-        </p>
-      {/if}
-    </div>
-  {/each}
-  <p class="hint">
-    キーの設定中は任意のキーまたはキーの組み合わせを押してください。Escでキャンセルします。
-  </p>
-  {#if hotkeyStatus}<p class="hotkey-status">{hotkeyStatus}</p>{/if}
-  {#if hotkeyError}<p class="error">{hotkeyError}</p>{/if}
-  <div class="update-setting">
-    <div>
-      <span class="setting-label">アプリの更新</span>
-      <p class="hint">現在のバージョン: {currentVersion || '確認中…'}</p>
-      {#if settings.skipped_update_version}
-        <p class="hint">
-          バージョン {settings.skipped_update_version} の自動通知はスキップ中です。
-        </p>
-      {/if}
-    </div>
-    <div class="update-setting-actions">
-      <div class="update-setting-buttons">
-        <button
-          type="button"
-          disabled={checkingUpdate || installingUpdate}
-          onclick={checkForUpdate}
-        >
-          {checkingUpdate ? '確認中…' : '更新を確認'}
-        </button>
-        {#if availableUpdate || previewUpdateAvailable}
-          <button
-            type="button"
-            class="primary"
-            disabled={installingUpdate || trackingActive}
-            onclick={installAvailableUpdate}
-            >{installingUpdate ? '更新中…' : '更新して再起動'}</button
+          <label class="settings-row settings-switch-row"
+            ><span
+              ><strong>バックグラウンド時間を除外</strong><small>ゲームが最前面にない時間</small
+              ></span
+            ><input
+              class="settings-switch"
+              type="checkbox"
+              role="switch"
+              bind:checked={settings.exclude_background_time}
+            /></label
           >
-        {/if}
-      </div>
-      <div class="update-setting-feedback" aria-live="polite">
-        {#if updateStatus}<p>{updateStatus}</p>{/if}
-        {#if updateError}<p class="error">{updateError}</p>{/if}
-        {#if (availableUpdate || previewUpdateAvailable) && trackingActive}
-          <p>起動中のゲームを終了すると更新できます。</p>
-        {/if}
-        {#if installingUpdate}
-          <p>{updateProgressText()}</p>
-          {#if updateContentLength}
-            <progress value={updateDownloaded} max={updateContentLength}></progress>
-          {/if}
-        {/if}
-      </div>
+          <div class="settings-card-note">
+            <SettingsIcon name="history" /><span>過去の履歴・統計にも適用</span>
+          </div>
+        </div>
+      </section>
+      <section
+        id="settings-shortcuts"
+        class="settings-section"
+        aria-labelledby="settings-shortcuts-title"
+      >
+        <div class="settings-section-heading">
+          <SettingsIcon name="keyboard" />
+          <h2 id="settings-shortcuts-title">ショートカット</h2>
+        </div>
+        <div class="settings-card settings-shortcuts">
+          {#each hotkeyFields as { field, label }}
+            <div class="settings-hotkey-row">
+              <div class="settings-hotkey-label">
+                <strong>{label}</strong>{#if field === 'ocr_search_hotkey'}<small
+                    >ゲーム画面の文字を選択して検索</small
+                  >{:else if field === 'screenshot_hotkey'}<small>最前面のゲームを撮影</small
+                  >{:else}<small>全ゲーム共通</small>{/if}
+              </div>
+              <div
+                class:recording={recordingHotkey === field}
+                class:invalid={Boolean(hotkeyError)}
+                class="hotkey-recorder"
+              >
+                <kbd
+                  >{recordingHotkey === field
+                    ? 'キーを押してください…'
+                    : settings[field] || '未設定'}</kbd
+                >
+                <button
+                  type="button"
+                  disabled={saving || checkingHotkey || recordingHotkey !== null}
+                  onclick={() => startHotkeyRecording(field)}
+                  >{settings[field] ? '変更' : '設定'}</button
+                >
+                <button
+                  class="settings-icon-button"
+                  type="button"
+                  aria-label={`${label}のキーを解除`}
+                  title="キーを解除"
+                  disabled={!settings[field] ||
+                    saving ||
+                    checkingHotkey ||
+                    recordingHotkey !== null}
+                  onclick={() => clearHotkey(field)}><SettingsIcon name="close" /></button
+                >
+              </div>
+            </div>
+          {/each}
+          {#if recordingHotkey}<p class="settings-card-note" role="status">
+              キーを入力 · Escでキャンセル
+            </p>{/if}
+          {#if hotkeyStatus}<p class="hotkey-status" role="status">{hotkeyStatus}</p>{/if}
+          {#if hotkeyError}<p class="error" role="alert">{hotkeyError}</p>{/if}
+        </div>
+      </section>
+      <section
+        id="settings-appearance"
+        class="settings-section"
+        aria-labelledby="settings-appearance-title"
+      >
+        <div class="settings-section-heading">
+          <SettingsIcon name="palette" />
+          <h2 id="settings-appearance-title">表示と動作</h2>
+        </div>
+        <div class="settings-card">
+          <div class="settings-theme-field">
+            <strong>カラーテーマ</strong>
+            <div class="settings-theme-options" role="group" aria-label="カラーテーマ">
+              {#each themes as theme}<button
+                  class={`settings-theme-option preview-${theme.value}`}
+                  aria-pressed={settings.theme === theme.value}
+                  onclick={() => selectTheme(theme.value)}
+                  ><span class="settings-theme-mini" aria-hidden="true"
+                    ><span></span><i></i><i></i></span
+                  ><span
+                    >{theme.label}{#if settings.theme === theme.value}<SettingsIcon
+                        name="check"
+                      />{/if}</span
+                  ></button
+                >{/each}
+            </div>
+          </div>
+          <label class="settings-row settings-switch-row"
+            ><span><strong>Windowsログイン時に起動</strong></span><input
+              class="settings-switch"
+              type="checkbox"
+              role="switch"
+              bind:checked={settings.autostart}
+            /></label
+          >
+          <label class="settings-row settings-switch-row"
+            ><span><strong>閉じるとトレイへ格納</strong></span><input
+              class="settings-switch"
+              type="checkbox"
+              role="switch"
+              bind:checked={settings.close_to_tray}
+            /></label
+          >
+        </div>
+      </section>
+      <section
+        id="settings-updates"
+        class="settings-section"
+        aria-labelledby="settings-updates-title"
+      >
+        <div class="settings-section-heading">
+          <SettingsIcon name="refresh" />
+          <h2 id="settings-updates-title">アプリの更新</h2>
+        </div>
+        <div class="settings-card">
+          <div class="settings-row">
+            <div class="settings-version">
+              <strong>Eroge Playtime Tracker</strong><span>v{currentVersion || '—'}</span>
+            </div>
+            <button
+              type="button"
+              disabled={checkingUpdate || installingUpdate}
+              onclick={checkForUpdate}
+              ><SettingsIcon name="refresh" />{checkingUpdate ? '確認中…' : '更新を確認'}</button
+            >
+          </div>
+          <label class="settings-row settings-switch-row"
+            ><span><strong>起動時に更新を確認</strong></span><input
+              class="settings-switch"
+              type="checkbox"
+              role="switch"
+              bind:checked={settings.auto_check_updates}
+            /></label
+          >
+          {#if settings.skipped_update_version}<p class="settings-card-note">
+              v{settings.skipped_update_version} の通知はスキップ中
+            </p>{/if}
+          {#if updateStatus || updateError || availableUpdate || previewUpdateAvailable || installingUpdate}<div
+              class="settings-feedback"
+              aria-live="polite"
+            >
+              {#if updateStatus}<p>{updateStatus}</p>{/if}
+              {#if updateError}<p class="error" role="alert">{updateError}</p>{/if}
+              {#if availableUpdate || previewUpdateAvailable}<button
+                  class="primary"
+                  disabled={installingUpdate || trackingActive}
+                  onclick={installAvailableUpdate}
+                  >{installingUpdate ? '更新中…' : '更新して再起動'}</button
+                >{#if trackingActive}<p class="hint">
+                    起動中のゲームを終了してください。
+                  </p>{/if}{/if}
+              {#if installingUpdate}<p>{updateProgressText()}</p>
+                {#if updateContentLength}<progress
+                    value={updateDownloaded}
+                    max={updateContentLength}
+                  ></progress>{/if}{/if}
+            </div>{/if}
+        </div>
+      </section>
+      <section id="settings-data" class="settings-section" aria-labelledby="settings-data-title">
+        <div class="settings-section-heading">
+          <SettingsIcon name="database" />
+          <h2 id="settings-data-title">データの移行</h2>
+        </div>
+        <div class="settings-card">
+          <div class="settings-data-actions">
+            <button disabled={backupBusy || trackingActive} onclick={exportData}
+              ><SettingsIcon name="upload" /><strong
+                >{backupBusy && !importPreview ? '処理中…' : 'エクスポート'}</strong
+              ><small>バックアップを保存</small></button
+            ><button disabled={backupBusy || trackingActive} onclick={chooseImport}
+              ><SettingsIcon name="download" /><strong>インポート</strong><small
+                >バックアップから復元</small
+              ></button
+            >
+          </div>
+          <label class="settings-row settings-switch-row"
+            ><span><strong>スクリーンショットを含める</strong><small>エクスポート時</small></span
+            ><input
+              class="settings-switch"
+              type="checkbox"
+              role="switch"
+              bind:checked={includeScreenshots}
+              disabled={backupBusy}
+            /></label
+          >
+          {#if trackingActive}<p class="settings-card-note">
+              起動中のゲームを終了すると操作できます。
+            </p>{/if}
+          {#if backupMessage || backupError || backupBusy}<div
+              class="settings-feedback"
+              aria-live="polite"
+            >
+              {#if backupMessage}<p>{backupMessage}</p>{/if}{#if backupError}<p
+                  class="error"
+                  role="alert"
+                >
+                  {backupError}
+                </p>{/if}
+              {#if backupBusy}<div class="backup-progress">
+                  {#if backupProgress?.phase === 'archiving' && backupProgress.total_bytes > 0}<progress
+                      value={backupProgress.processed_bytes}
+                      max={backupProgress.total_bytes}
+                    ></progress><small
+                      >{formatBytes(backupProgress.processed_bytes)} / {formatBytes(
+                        backupProgress.total_bytes,
+                      )}</small
+                    >{:else}<progress></progress>{/if}
+                </div>{/if}
+            </div>{/if}
+        </div>
+      </section>
     </div>
-    <label class="check update-auto-check">
-      <input type="checkbox" bind:checked={settings.auto_check_updates} />
-      起動時に更新を自動確認して通知する
-    </label>
   </div>
-  <div class="backup-setting">
-    <div>
-      <span class="setting-label">データの移行</span>
-      <p class="hint">ゲーム、プレイ履歴、設定、画像を1つのファイルに保存します。</p>
-    </div>
-    <label class="check backup-option">
-      <input type="checkbox" bind:checked={includeScreenshots} disabled={backupBusy} />
-      スクリーンショットを含める
-    </label>
-    <div class="backup-setting-actions">
-      <button type="button" disabled={backupBusy || trackingActive} onclick={exportData}>
-        {backupBusy && !importPreview ? '処理中…' : 'エクスポート'}
-      </button>
-      <button type="button" disabled={backupBusy || trackingActive} onclick={chooseImport}>
-        インポート
-      </button>
-    </div>
-    {#if trackingActive}<p class="hint">起動中のゲームを終了すると操作できます。</p>{/if}
-    <div class="backup-setting-feedback" aria-live="polite">
-      {#if backupMessage}<p>{backupMessage}</p>{/if}
-      {#if backupError}<p class="error">{backupError}</p>{/if}
-      {#if backupBusy}<div class="backup-progress">
-          {#if backupProgress?.phase === 'archiving' && backupProgress.total_bytes > 0}
-            <progress value={backupProgress.processed_bytes} max={backupProgress.total_bytes}
-            ></progress>
-            <small>
-              {formatBytes(backupProgress.processed_bytes)} / {formatBytes(
-                backupProgress.total_bytes,
-              )}
-            </small>
-          {:else}
-            <progress></progress>
-          {/if}
-        </div>{/if}
-    </div>
-  </div>
-  <button class="primary" disabled={recordingHotkey !== null || checkingHotkey} onclick={save}
-    >保存</button
-  >{#if message}<p>
-      {message}
-    </p>{/if}{#if error}<p class="error">{error}</p>{/if}
 </section>
-
 {#if historyOpen}<PauseHistory
     {status}
     onchange={onstatus}
