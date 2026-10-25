@@ -7,8 +7,10 @@ use std::{
 
 const SUPPORTED_EXTENSIONS: [&str; 4] = ["jpg", "jpeg", "png", "webp"];
 
-pub async fn download(client: &reqwest::Client, url: &str, dir: &Path) -> Result<PathBuf> {
-    let bytes = client
+pub async fn download(url: &str, dir: &Path) -> Result<PathBuf> {
+    // Rebuild for each download so Windows proxy changes apply without a restart.
+    let bytes = reqwest::Client::builder()
+        .build()?
         .get(url)
         .timeout(std::time::Duration::from_secs(15))
         .send()
