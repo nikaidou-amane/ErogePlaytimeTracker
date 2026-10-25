@@ -98,6 +98,8 @@ impl Server {
                     }
                     Err(error) => panic!("test server accept failed: {error}"),
                 };
+                // Windows may inherit the listener's nonblocking mode on accepted sockets.
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(5)))
                     .unwrap();
