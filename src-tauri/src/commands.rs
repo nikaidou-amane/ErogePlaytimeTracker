@@ -64,7 +64,7 @@ fn known_error_message(detail: &str) -> Option<&str> {
         "サムネイル画像を読み取れません",
         "トリミング画像がPNG形式ではありません",
         "ショートカットキーを入力してください",
-        "撮影用とOCR検索用には別のキーを設定してください。",
+        "撮影・OCR検索・一時停止にはそれぞれ別のキーを設定してください。",
         "ショートカットキーを復元できませんでした。設定を確認してください。",
         "このキーは別のアプリで使用されています",
         "開始日時が不正です",
@@ -483,10 +483,11 @@ pub fn validate_hotkeys(
     state: State<AppState>,
     screenshot_hotkey: String,
     ocr_search_hotkey: String,
+    tracking_pause_hotkey: String,
 ) -> Cmd<()> {
     state
         .hotkey_service
-        .check_hotkeys([screenshot_hotkey, ocr_search_hotkey])
+        .check_hotkeys([screenshot_hotkey, ocr_search_hotkey, tracking_pause_hotkey])
         .map_err(err)
 }
 #[tauri::command]
@@ -772,5 +773,57 @@ mod tests {
         assert_eq!(message, user_error(GENERIC_ERROR));
         assert!(!message.contains("play_sessions"));
         assert!(!message.contains("private path"));
+    }
+}
+
+#[tauri::command]
+pub fn set_tracking_paused(state: State<AppState>, paused: bool) -> Cmd<TrackingStatus> {
+    state.tracker.set_paused(paused).map_err(pause_error)
+}
+#[tauri::command]
+pub fn list_tracking_pause_intervals(
+    state: State<AppState>,
+    before_id: Option<i64>,
+    limit: u32,
+) -> Cmd<Vec<TrackingPauseInterval>> {
+    state
+        .db
+        .pause_intervals(before_id, limit)
+        .map_err(pause_error)
+}
+#[tauri::command]
+pub fn update_tracking_pause_interval(
+    state: State<AppState>,
+    id: i64,
+    start: String,
+    end: Option<String>,
+    expected_updated_at: String,
+) -> Cmd<()> {
+    state
+        .tracker
+        .update_pause(id, &start, end.as_deref(), &expected_updated_at)
+        .map_err(pause_error)
+}
+#[tauri::command]
+pub fn delete_tracking_pause_interval(
+    state: State<AppState>,
+    id: i64,
+    expected_updated_at: String,
+) -> Cmd<()> {
+    state
+        .tracker
+        .delete_pause(id, &expected_updated_at)
+        .map_err(pause_error)
+}
+fn pause_error(error: anyhow::Error) -> String {
+    let message = error.to_string();
+    if message.starts_with("一時停止区間")
+        || message.starts_with("終了済みの一時停止")
+        || message == "日時が不正です"
+    {
+        user_error(message)
+    } else {
+        log::error!("pause operation failed: {error:#}");
+        user_error("一時停止履歴を更新できませんでした。もう一度お試しください。")
     }
 }

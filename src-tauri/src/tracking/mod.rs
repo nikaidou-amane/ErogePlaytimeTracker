@@ -36,6 +36,9 @@ struct Inner {
     watched_pids: Mutex<HashSet<u32>>,
     games_that_had_windows: Mutex<HashSet<i64>>,
     windowless_since: Mutex<HashMap<i64, String>>,
+    transition: Mutex<()>,
+    shown_pause: Mutex<Option<bool>>,
+    pause_cache: Mutex<Option<crate::models::TrackingPauseInterval>>,
     stop: AtomicBool,
     app: AppHandle,
 }
@@ -52,6 +55,9 @@ impl TrackingService {
                 watched_pids: Mutex::new(HashSet::new()),
                 games_that_had_windows: Mutex::new(HashSet::new()),
                 windowless_since: Mutex::new(HashMap::new()),
+                transition: Mutex::new(()),
+                shown_pause: Mutex::new(None),
+                pause_cache: Mutex::new(None),
                 stop: AtomicBool::new(false),
                 app,
             }),
@@ -82,6 +88,10 @@ impl TrackingService {
         }
     }
     fn tick(&self) -> anyhow::Result<()> {
+        let _transition = self.inner.transition.lock();
+        if self.inner.stop.load(Ordering::Relaxed) {
+            return Ok(());
+        }
         let registered = self.inner.db.registered_executables()?;
         let by_path: HashMap<String, i64> = registered
             .iter()
@@ -227,6 +237,7 @@ impl TrackingService {
             .lock()
             .retain(|game, _| alive.contains(game));
         self.inner.db.set_setting("last_seen", &at)?;
+        drop(_transition);
         self.emit();
         Ok(())
     }
@@ -305,9 +316,40 @@ impl TrackingService {
         Ok(())
     }
     fn emit(&self) {
+        let service = self.clone();
+        if let Err(error) = self
+            .inner
+            .app
+            .run_on_main_thread(move || service.emit_current())
+        {
+            log::warn!("could not schedule tracking status: {error}");
+        }
+    }
+    fn emit_current(&self) {
         let status = self.status();
+        let needs_update = {
+            let mut shown = self.inner.shown_pause.lock();
+            if *shown == Some(status.is_paused) {
+                false
+            } else {
+                *shown = Some(status.is_paused);
+                true
+            }
+        };
+        if needs_update {
+            match crate::pause_icons::update(&self.inner.app, status.is_paused) {
+                Ok(true) => {}
+                Ok(false) => *self.inner.shown_pause.lock() = None,
+                Err(error) => {
+                    *self.inner.shown_pause.lock() = None;
+                    log::warn!("could not schedule pause icons: {error}");
+                }
+            }
+        }
         if let Some(tray) = self.inner.app.tray_by_id("tracker") {
-            let label = if status.games.is_empty() {
+            let label = if status.is_paused {
+                "Eroge Playtime Tracker - 一時停止中".to_string()
+            } else if status.games.is_empty() {
                 "Eroge Playtime Tracker - idle".to_string()
             } else {
                 format!(
@@ -320,6 +362,13 @@ impl TrackingService {
         let _ = self.inner.app.emit("tracking-status", status);
     }
     pub fn status(&self) -> TrackingStatus {
+        if let Ok(current) = self.inner.db.active_pause() {
+            *self.inner.pause_cache.lock() = current;
+        }
+        let pause = self.inner.pause_cache.lock();
+        let is_paused = pause.is_some();
+        let pause_started_at = pause.as_ref().map(|p| p.started_at.clone());
+        drop(pause);
         let s = self.inner.state.lock();
         let games_that_had_windows = self.inner.games_that_had_windows.lock();
         let names: HashMap<i64, String> = self
@@ -331,6 +380,8 @@ impl TrackingService {
             .map(|(g, n, _)| (g, n))
             .collect();
         TrackingStatus {
+            is_paused,
+            pause_started_at,
             games: s
                 .running()
                 .iter()
@@ -354,6 +405,68 @@ impl TrackingService {
                 .collect(),
         }
     }
+    pub fn pause_icons_rendered(&self, paused: Option<bool>) {
+        *self.inner.shown_pause.lock() = paused;
+    }
+    pub fn refresh_pause_icons(&self) {
+        *self.inner.shown_pause.lock() = None;
+        self.emit();
+    }
+    pub fn set_paused(&self, paused: bool) -> anyhow::Result<TrackingStatus> {
+        let _transition = self.inner.transition.lock();
+        anyhow::ensure!(
+            !self.inner.stop.load(Ordering::Relaxed),
+            "アプリを終了しています。"
+        );
+        self.inner.db.set_paused(paused, &Utc::now().to_rfc3339())?;
+        drop(_transition);
+        self.emit();
+        Ok(self.status())
+    }
+    pub fn toggle_paused(&self) -> anyhow::Result<()> {
+        let _transition = self.inner.transition.lock();
+        anyhow::ensure!(
+            !self.inner.stop.load(Ordering::Relaxed),
+            "アプリを終了しています。"
+        );
+        let paused = self.inner.db.active_pause()?.is_none();
+        self.inner.db.set_paused(paused, &Utc::now().to_rfc3339())?;
+        drop(_transition);
+        self.emit();
+        Ok(())
+    }
+    pub fn update_pause(
+        &self,
+        id: i64,
+        start: &str,
+        end: Option<&str>,
+        expected: &str,
+    ) -> anyhow::Result<()> {
+        let _transition = self.inner.transition.lock();
+        anyhow::ensure!(
+            !self.inner.stop.load(Ordering::Relaxed),
+            "アプリを終了しています。"
+        );
+        self.inner
+            .db
+            .update_pause(id, start, end, expected, &Utc::now().to_rfc3339())?;
+        drop(_transition);
+        self.emit();
+        Ok(())
+    }
+    pub fn delete_pause(&self, id: i64, expected: &str) -> anyhow::Result<()> {
+        let _transition = self.inner.transition.lock();
+        anyhow::ensure!(
+            !self.inner.stop.load(Ordering::Relaxed),
+            "アプリを終了しています。"
+        );
+        self.inner
+            .db
+            .delete_pause(id, expected, &Utc::now().to_rfc3339())?;
+        drop(_transition);
+        self.emit();
+        Ok(())
+    }
     pub fn focused_game(&self) -> Option<(i64, i64)> {
         let foreground_pid = platform::foreground_pid()?;
         let observed_game = self
@@ -371,7 +484,11 @@ impl TrackingService {
     }
     pub fn shutdown(&self) {
         self.inner.stop.store(true, Ordering::Relaxed);
+        let _transition = self.inner.transition.lock();
         let at = Utc::now().to_rfc3339();
+        if let Err(error) = self.inner.db.set_paused(false, &at) {
+            log::error!("could not close pause at shutdown: {error:#}");
+        }
         let mut s = self.inner.state.lock();
         let actions = s.reconcile_running(&HashSet::new(), &HashSet::new(), |_| None);
         drop(s);

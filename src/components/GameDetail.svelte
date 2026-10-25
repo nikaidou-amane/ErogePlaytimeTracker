@@ -208,7 +208,7 @@
     const refreshIntervals = (status: TrackingStatus) => {
       const trackingGame = status.games.find((entry) => entry.game_id === gameId);
       const nextTrackingStateKey = trackingGame
-        ? `${trackingGame.session_id}:${trackingGame.phase}`
+        ? `${trackingGame.session_id}:${trackingGame.phase}:${status.is_paused}:${status.pause_started_at}`
         : '';
       const refreshStatistics = nextTrackingStateKey !== trackingStateKey;
       trackingStateKey = nextTrackingStateKey;
@@ -1469,7 +1469,7 @@
             >{sessionReviewSaving ? '確認中…' : '確認済みにする'}</button
           >
         </div>{/if}
-      <div class="session-breakdown">
+      <div class="session-breakdown session-time-summary">
         <span
           ><small>起動時間</small><strong
             >{duration(
@@ -1482,6 +1482,15 @@
         <span
           ><small>バックグラウンド時間</small><strong
             >{duration(selected.background_seconds)}</strong
+          ></span
+        >
+        <span
+          ><small title="バックグラウンドで既に除外された時間は含みません"
+            >一時停止による計測除外時間</small
+          ><strong
+            >{typeof selected.pause_excluded_seconds === 'number'
+              ? duration(selected.pause_excluded_seconds)
+              : '—'}</strong
           ></span
         >
       </div>

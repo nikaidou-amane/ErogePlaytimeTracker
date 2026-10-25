@@ -6,6 +6,7 @@ mod hotkeys;
 mod metadata;
 mod models;
 mod ocr;
+mod pause_icons;
 mod screenshot;
 mod thumbnail;
 mod tracking;
@@ -179,6 +180,9 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if matches!(event,tauri::WindowEvent::Focused(true)) && let Some(state)=window.try_state::<AppState>() {
+                state.tracker.refresh_pause_icons();
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event
                 && let Some(s) = window.try_state::<AppState>()
                 && !s.quitting.load(Ordering::Relaxed)
@@ -235,11 +239,20 @@ pub fn run() {
             commands::cancel_backup_import,
             commands::take_backup_import_notice,
             commands::get_tracking_status,
+            commands::set_tracking_paused,
+            commands::list_tracking_pause_intervals,
+            commands::update_tracking_pause_interval,
+            commands::delete_tracking_pause_interval,
             commands::list_game_screenshots,
             commands::recognize_screenshot_text,
             commands::delete_game_screenshot,
             commands::open_screenshot_directory
         ])
-        .run(tauri::generate_context!())
-        .expect("Tauri application failed");
+        .build(tauri::generate_context!())
+        .expect("Tauri application failed")
+        .run(|app,event| {
+            if matches!(event,tauri::RunEvent::Exit) && let Some(state)=app.try_state::<AppState>() {
+                state.tracker.shutdown();
+            }
+        });
 }
