@@ -91,6 +91,12 @@ headerのtracking statusはgame単位のphase（起動中、プレイ中、Backg
 
 tracking state、background記録、session境界、最終プレイの判定は変更しません。backgroundの合計値や区間編集も計算設定と独立して維持します。UIでは「除外時間／区間」ではなく「バックグラウンド時間／区間」と呼び、現在の計算方法を明示します。backupには設定と区間の両方を含め、復元後も計算設定を切り替えられます。
 
+## ネットワークとWindowsプロキシ
+
+更新確認・更新ファイルのdownload、ErogameScape / VNDBの情報取得、thumbnail取得は、Windowsの手動プロキシ設定を自動的に参照します。アプリ内の切り替え設定は不要です。Windows側の有効・無効、接続先、除外先の変更は、次の取得操作から反映します。進行中の通信は開始時の経路を使い、プロキシへの接続に失敗しても直接接続へ再試行しません。
+
+reqwestの`system-proxy` featureを有効にし、updaterが使う別versionのreqwestにも共通のhyper-util経由で反映します。metadata providerとupdaterは操作ごと、thumbnailはdownloadごとにclientを作成し、起動時の設定を保持し続けないようにします。明示的なHTTP_PROXY / HTTPS_PROXY / ALL_PROXY / NO_PROXY環境変数は従来どおり優先されます。PAC scriptやWPADによる自動構成、Windows統合認証はこの対応の対象外です。
+
 ## ErogameScape / VNDB連携
 
 1つの入力欄へgame URLまたはIDを指定し、title、brand、発売日、package imageを取得します。数字のみはErogameScape、`v548`形式またはVNDBの作品URLはVNDBとしてRust側で判定します。`GameMetadataProvider`の下でErogameScapeはHTMLを解析し、VNDBは認証不要の[公式Kana API](https://api.vndb.org/kana)を利用します。

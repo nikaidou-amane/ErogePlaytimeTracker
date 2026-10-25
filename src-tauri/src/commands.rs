@@ -366,7 +366,7 @@ async fn metadata_preview(state: &AppState, value: &str) -> anyhow::Result<Metad
         log::warn!("metadata fetch/parse failed: {e:#}");
     })?;
     let thumbnail_path = if let Some(url) = &metadata.thumbnail_url {
-        match crate::thumbnail::download(&state.http, url, &state.thumbnails).await {
+        match crate::thumbnail::download(url, &state.thumbnails).await {
             Ok(path) => Some(path.to_string_lossy().to_string()),
             Err(error) => {
                 log::warn!("thumbnail preview download failed: {error:#}");
