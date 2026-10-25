@@ -41,6 +41,16 @@ impl AppState {
         self.db.settings().unwrap_or_default()
     }
 }
+// Startup repairs orphan sessions in whichever database it opens. A development
+// build sharing the installed release directory would therefore close and flag
+// the sessions the release is currently recording.
+fn data_dir_name(development: bool) -> &'static str {
+    if development {
+        "ErogePlaytimeTracker-dev"
+    } else {
+        "ErogePlaytimeTracker"
+    }
+}
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -59,7 +69,9 @@ pub fn run() {
         .setup(|app| {
             let dirs = directories::BaseDirs::new()
                 .ok_or_else(|| anyhow::anyhow!("Application Data directoryを取得できません"))?;
-            let root = dirs.data_local_dir().join("ErogePlaytimeTracker");
+            let root = dirs
+                .data_local_dir()
+                .join(data_dir_name(cfg!(debug_assertions)));
             std::fs::create_dir_all(&root)?;
             let existing_installation = root.join("app.db").exists();
             let applied_import = backup::apply_pending_import(&root)?;
@@ -244,4 +256,14 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("Tauri application failed");
+}
+#[cfg(test)]
+mod tests {
+    use super::data_dir_name;
+    #[test]
+    fn development_build_uses_a_separate_data_directory() {
+        // The release directory name is persisted user data; keep it stable.
+        assert_eq!(data_dir_name(false), "ErogePlaytimeTracker");
+        assert_ne!(data_dir_name(true), data_dir_name(false));
+    }
 }
