@@ -1117,7 +1117,7 @@
             onclick={selectExe}>参照…</button
           ><button onclick={addExe}>追加</button>
         </div>
-        <h3>起動コマンド</h3>
+        <h3 class="launch-command-title">起動コマンド</h3>
         {#if launchCommandEditing}
           <p class="hint">
             未入力なら上の実行ファイルを起動します。相対パスは実行ファイルと同じフォルダを基準にします。

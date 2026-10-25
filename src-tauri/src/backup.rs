@@ -1202,6 +1202,7 @@ mod tests {
                     executable_paths: vec![
                         parent.join("missing.exe").to_string_lossy().into_owned(),
                     ],
+                    launch_command: None,
                 },
                 Some(&thumbnail.to_string_lossy()),
             )

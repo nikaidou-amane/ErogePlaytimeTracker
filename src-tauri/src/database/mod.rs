@@ -231,7 +231,12 @@ impl Database {
             .map(MetadataIdentity::normalized)
             .transpose()?;
         let n = now();
-        tx.execute("INSERT INTO games(erogamescape_id,vndb_id,metadata_source,title,brand_id,release_date,thumbnail_path,source_url,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",params![source.as_ref().and_then(MetadataIdentity::erogamescape_id),source.as_ref().and_then(MetadataIdentity::vndb_id),source.as_ref().map(MetadataIdentity::provider),input.title.trim(),brand,input.release_date,thumbnail,source.as_ref().map(MetadataIdentity::url),n,n])?;
+        let launch_command = input
+            .launch_command
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        tx.execute("INSERT INTO games(erogamescape_id,vndb_id,metadata_source,title,brand_id,release_date,thumbnail_path,source_url,launch_command,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",params![source.as_ref().and_then(MetadataIdentity::erogamescape_id),source.as_ref().and_then(MetadataIdentity::vndb_id),source.as_ref().map(MetadataIdentity::provider),input.title.trim(),brand,input.release_date,thumbnail,source.as_ref().map(MetadataIdentity::url),launch_command,n,n])?;
         let id = tx.last_insert_rowid();
         for p in &input.executable_paths {
             insert_executable(&tx, id, p)?
@@ -1667,6 +1672,7 @@ mod tests {
                 thumbnail_path: None,
                 source: None,
                 executable_paths: vec![r#"C:\G\a.exe"#.into(), r#"C:\G\launcher.exe"#.into()],
+                launch_command: None,
             },
             None,
         )
@@ -1710,6 +1716,7 @@ mod tests {
                     thumbnail_path: None,
                     source: None,
                     executable_paths: vec![],
+                    launch_command: None,
                 },
                 None,
             )
@@ -1954,6 +1961,7 @@ mod tests {
             thumbnail_path: None,
             source: Some(MetadataIdentity::Vndb("v548".into())),
             executable_paths: vec![],
+            launch_command: None,
         };
         d.create_game(&input, None).unwrap();
         assert!(d.create_game(&input, None).is_err());
@@ -2113,6 +2121,7 @@ mod tests {
                     thumbnail_path: None,
                     source: None,
                     executable_paths: vec![],
+                    launch_command: None,
                 },
                 None,
             )
@@ -2254,6 +2263,30 @@ mod tests {
             d.launch_command(g).unwrap(),
             None,
             "a blank command restores the registered executable"
+        );
+    }
+
+    #[test]
+    fn create_game_persists_a_launch_command() {
+        let d = Database::memory().unwrap();
+        let g = d
+            .create_game(
+                &CreateGameInput {
+                    title: "Launcher game".into(),
+                    brand: None,
+                    release_date: None,
+                    thumbnail_path: None,
+                    source: None,
+                    executable_paths: vec![r"D:\vn\game\game.exe".into()],
+                    launch_command: Some(" wrapper.exe --fullscreen".into()),
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            d.get_game(g).unwrap().launch_command.as_deref(),
+            Some("wrapper.exe --fullscreen"),
+            "create trims and stores the custom launch command"
         );
     }
 
@@ -2424,6 +2457,7 @@ mod tests {
                 thumbnail_path: None,
                 source: None,
                 executable_paths: vec![],
+                launch_command: None,
             },
             None,
         )
@@ -2450,6 +2484,7 @@ mod tests {
                     thumbnail_path: None,
                     source: None,
                     executable_paths: vec![],
+                    launch_command: None,
                 },
                 None,
             )
@@ -2637,6 +2672,7 @@ mod tests {
                     thumbnail_path: None,
                     source: None,
                     executable_paths: vec![r#"C:\Other\other.exe"#.into()],
+                    launch_command: None,
                 },
                 None,
             )
@@ -2693,6 +2729,7 @@ mod tests {
                     thumbnail_path: None,
                     source: None,
                     executable_paths: vec![],
+                    launch_command: None,
                 },
                 None,
             )

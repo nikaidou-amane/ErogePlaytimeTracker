@@ -143,6 +143,7 @@ pub struct CreateGameInput {
     pub source: Option<crate::metadata::MetadataIdentity>,
     #[serde(default)]
     pub executable_paths: Vec<String>,
+    pub launch_command: Option<String>,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct MetadataPreview {

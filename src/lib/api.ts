@@ -63,6 +63,7 @@ export const api = {
     thumbnail_path?: string;
     source?: MetadataIdentity;
     executable_paths: string[];
+    launch_command?: string;
   }) => command<number>('create_game', { input }),
   updateGame: (
     id: number,

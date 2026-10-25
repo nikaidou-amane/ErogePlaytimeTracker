@@ -537,6 +537,7 @@ mod tests {
                     thumbnail_path: None,
                     source: None,
                     executable_paths: vec![r"D:\vn\game\game.exe".into()],
+                    launch_command: None,
                 },
                 None,
             )
