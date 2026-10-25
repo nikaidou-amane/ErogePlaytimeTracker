@@ -662,6 +662,15 @@ pub fn take_backup_import_notice(state: State<AppState>) -> Cmd<Option<BackupImp
 pub fn get_tracking_status(state: State<AppState>) -> TrackingStatus {
     state.tracker.status()
 }
+#[tauri::command]
+pub fn set_tracking_paused(state: State<AppState>, paused: bool) -> Cmd<()> {
+    if paused {
+        state.tracker.pause();
+    } else {
+        state.tracker.resume();
+    }
+    Ok(())
+}
 
 #[tauri::command]
 pub fn list_game_screenshots(state: State<AppState>, game_id: i64) -> Cmd<Vec<GameScreenshot>> {

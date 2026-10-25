@@ -16,7 +16,7 @@ use std::{
     thread,
     time::Duration,
 };
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, image::Image};
 
 const RECONCILIATION_INTERVAL: Duration = Duration::from_secs(3);
 
@@ -36,6 +36,16 @@ struct Inner {
     watched_pids: Mutex<HashSet<u32>>,
     games_that_had_windows: Mutex<HashSet<i64>>,
     windowless_since: Mutex<HashMap<i64, String>>,
+    // Pausing is a runtime state on purpose: the app starts tracking again on
+    // every launch, so a pause never survives a restart.
+    paused: AtomicBool,
+    icon: Image<'static>,
+    // Built on first use so the 3 second tick does not redo the conversion.
+    paused_icon: std::sync::OnceLock<Image<'static>>,
+    // Last paused value applied to the tray, so the tick only touches the
+    // icon and menu when the state actually changes.
+    tray_paused: Mutex<Option<bool>>,
+    pause_item: Mutex<Option<tauri::menu::CheckMenuItem<tauri::Wry>>>,
     stop: AtomicBool,
     app: AppHandle,
 }
@@ -52,6 +62,11 @@ impl TrackingService {
                 watched_pids: Mutex::new(HashSet::new()),
                 games_that_had_windows: Mutex::new(HashSet::new()),
                 windowless_since: Mutex::new(HashMap::new()),
+                paused: AtomicBool::new(false),
+                icon: tauri::include_image!("icons/32x32.png"),
+                paused_icon: std::sync::OnceLock::new(),
+                tray_paused: Mutex::new(None),
+                pause_item: Mutex::new(None),
                 stop: AtomicBool::new(false),
                 app,
             }),
@@ -173,7 +188,12 @@ impl TrackingService {
         drop(windowless_since);
         drop(had_windows);
         let mut state = self.inner.state.lock();
+        // The paused flag is read while the state lock is held so a pause that
+        // races this tick either prevents the create or closes what it created.
         let actions = state.reconcile_running(&alive, &windowed, |g| {
+            if self.inner.paused.load(Ordering::Relaxed) {
+                return None;
+            }
             match self.inner.db.start_session(g, &at) {
                 Ok(id) => {
                     log::info!("session started game={g} session={id}");
@@ -226,7 +246,11 @@ impl TrackingService {
             .windowless_since
             .lock()
             .retain(|game, _| alive.contains(game));
-        self.inner.db.set_setting("last_seen", &at)?;
+        // Paused time must not appear as tracked time if the app crashes and
+        // the next start repairs the sessions still open in the database.
+        if !self.paused() {
+            self.inner.db.set_setting("last_seen", &at)?;
+        }
         self.emit();
         Ok(())
     }
@@ -307,7 +331,9 @@ impl TrackingService {
     fn emit(&self) {
         let status = self.status();
         if let Some(tray) = self.inner.app.tray_by_id("tracker") {
-            let label = if status.games.is_empty() {
+            let label = if status.paused {
+                "Eroge Playtime Tracker - 追跡停止中".to_string()
+            } else if status.games.is_empty() {
                 "Eroge Playtime Tracker - idle".to_string()
             } else {
                 format!(
@@ -316,10 +342,37 @@ impl TrackingService {
                 )
             };
             let _ = tray.set_tooltip(Some(label));
+            // A greyscale icon is the only signal that works while the menu is
+            // closed, so it must mirror the paused flag. It is only swapped when
+            // the flag changes, because the tick calls this every 3 seconds.
+            let mut applied = self.inner.tray_paused.lock();
+            if *applied != Some(status.paused) {
+                let icon = if status.paused {
+                    self.inner
+                        .paused_icon
+                        .get_or_init(|| greyscale(&self.inner.icon))
+                        .clone()
+                } else {
+                    self.inner.icon.clone()
+                };
+                let _ = tray.set_icon(Some(icon));
+                if let Some(item) = self.inner.pause_item.lock().as_ref() {
+                    let _ = item.set_checked(status.paused);
+                }
+                *applied = Some(status.paused);
+            }
         }
         let _ = self.inner.app.emit("tracking-status", status);
     }
     pub fn status(&self) -> TrackingStatus {
+        if self.paused() {
+            // Nothing is being recorded while paused, so reporting games here
+            // would also keep backup and update operations blocked.
+            return TrackingStatus {
+                games: vec![],
+                paused: true,
+            };
+        }
         let s = self.inner.state.lock();
         let games_that_had_windows = self.inner.games_that_had_windows.lock();
         let names: HashMap<i64, String> = self
@@ -352,6 +405,7 @@ impl TrackingService {
                     .to_string(),
                 })
                 .collect(),
+            paused: false,
         }
     }
     pub fn focused_game(&self) -> Option<(i64, i64)> {
@@ -369,16 +423,60 @@ impl TrackingService {
         }
         state.session(game).map(|session| (game, session))
     }
+    pub fn paused(&self) -> bool {
+        self.inner.paused.load(Ordering::Relaxed)
+    }
+    // Pausing closes the sessions that are open right now, so the time during
+    // which the user asked for no tracking is never counted.
+    pub fn pause(&self) {
+        // Set the flag before closing so a concurrent tick cannot create a
+        // session after close_all has already run.
+        self.inner.paused.store(true, Ordering::Relaxed);
+        let at = Utc::now().to_rfc3339();
+        let actions = self.inner.state.lock().close_all();
+        if let Err(error) = self.apply(actions, &at, &HashMap::new()) {
+            // Stay paused rather than resuming behind the user's back. last_seen
+            // is frozen while paused, so the next start repairs any session that
+            // stayed open at the moment tracking was meant to stop.
+            log::error!("could not close sessions while pausing: {error:#}");
+        }
+        self.emit();
+    }
+    // Resuming only records from the next tick: the tracker is process driven,
+    // so it starts a session once a registered game has a visible window again.
+    pub fn resume(&self) {
+        self.inner.paused.store(false, Ordering::Relaxed);
+        self.emit();
+    }
     pub fn shutdown(&self) {
         self.inner.stop.store(true, Ordering::Relaxed);
         let at = Utc::now().to_rfc3339();
-        let mut s = self.inner.state.lock();
-        let actions = s.reconcile_running(&HashSet::new(), &HashSet::new(), |_| None);
-        drop(s);
+        let actions = self.inner.state.lock().close_all();
         if let Err(e) = self.apply(actions, &at, &HashMap::new()) {
             log::error!("clean shutdown failed: {e:#}")
         }
     }
+    pub fn set_pause_item(&self, item: tauri::menu::CheckMenuItem<tauri::Wry>) {
+        let _ = item.set_checked(self.paused());
+        *self.inner.pause_item.lock() = Some(item);
+        // The tray may already show the right icon, so resync the cached value
+        // to force the next emit to apply the menu state that just arrived.
+        *self.inner.tray_paused.lock() = None;
+    }
+}
+
+// Luminance keeps the paused icon recognisable instead of a flat grey square.
+fn greyscale(image: &Image<'static>) -> Image<'static> {
+    let mut rgba = image.rgba().to_vec();
+    for pixel in rgba.chunks_mut(4) {
+        let luminance = (0.299 * f32::from(pixel[0])
+            + 0.587 * f32::from(pixel[1])
+            + 0.114 * f32::from(pixel[2])) as u8;
+        pixel[0] = luminance;
+        pixel[1] = luminance;
+        pixel[2] = luminance;
+    }
+    Image::new_owned(rgba, image.width(), image.height())
 }
 
 fn executable_root(path: &str) -> Option<String> {
@@ -395,6 +493,25 @@ fn is_in_game_root(path: &str, roots: Option<&Vec<String>>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn greyscale_keeps_alpha_and_preserves_luminance_ordering() {
+        // Two pixels: bright red and dark blue, both fully opaque.
+        let source = Image::new_owned(vec![255, 0, 0, 255, 0, 0, 64, 128], 2, 1);
+        let result = greyscale(&source);
+        assert_eq!(result.width(), 2);
+        assert_eq!(result.height(), 1);
+        let pixels = result.rgba();
+        // Red is the brighter input, so it must stay brighter after conversion.
+        assert!(pixels[0] > pixels[4]);
+        assert_eq!(pixels[0], pixels[1]);
+        assert_eq!(pixels[1], pixels[2]);
+        assert_eq!(pixels[4], pixels[5]);
+        assert_eq!(pixels[5], pixels[6]);
+        // Alpha must survive, otherwise the tray icon would go transparent.
+        assert_eq!(pixels[3], 255);
+        assert_eq!(pixels[7], 128);
+    }
 
     #[test]
     fn descendants_must_stay_in_the_game_directory() {

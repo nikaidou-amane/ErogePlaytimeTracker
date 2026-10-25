@@ -141,4 +141,5 @@ export const api = {
   cancelBackupImport: (importId: string) => command<void>('cancel_backup_import', { importId }),
   takeBackupImportNotice: () => command<BackupImportNotice | null>('take_backup_import_notice'),
   status: () => command<TrackingStatus>('get_tracking_status'),
+  setTrackingPaused: (paused: boolean) => command<void>('set_tracking_paused', { paused }),
 };

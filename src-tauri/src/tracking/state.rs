@@ -40,23 +40,7 @@ impl TrackerState {
             let Some(session) = self.running.remove(&game).flatten() else {
                 continue;
             };
-            if self.focused == Some(game) {
-                self.focused = None;
-                actions.push(Action::FocusEnded {
-                    game_id: game,
-                    session_id: session,
-                });
-            }
-            if self.background.remove(&game) {
-                actions.push(Action::BackgroundEnded {
-                    game_id: game,
-                    session_id: session,
-                });
-            }
-            actions.push(Action::SessionEnded {
-                game_id: game,
-                session_id: session,
-            });
+            self.end_game(game, session, &mut actions);
         }
         for &game in alive {
             let session = self.running.entry(game).or_default();
@@ -129,6 +113,39 @@ impl TrackerState {
             });
         }
         actions
+    }
+
+    // Pausing and shutting down both end every open session at the current
+    // instant. A paused tracker keeps no session, so resuming starts a new one
+    // instead of extending the interval during which nothing was recorded.
+    pub fn close_all(&mut self) -> Vec<Action> {
+        let mut actions = vec![];
+        for (game, session) in self.running.drain().collect::<Vec<_>>() {
+            if let Some(session) = session {
+                self.end_game(game, session, &mut actions);
+            }
+        }
+        actions
+    }
+
+    fn end_game(&mut self, game: i64, session: i64, actions: &mut Vec<Action>) {
+        if self.focused == Some(game) {
+            self.focused = None;
+            actions.push(Action::FocusEnded {
+                game_id: game,
+                session_id: session,
+            });
+        }
+        if self.background.remove(&game) {
+            actions.push(Action::BackgroundEnded {
+                game_id: game,
+                session_id: session,
+            });
+        }
+        actions.push(Action::SessionEnded {
+            game_id: game,
+            session_id: session,
+        });
     }
 
     pub fn running(&self) -> &HashMap<i64, Option<i64>> {
@@ -367,5 +384,44 @@ mod tests {
         assert!(state.running().is_empty());
         assert!(state.background().is_empty());
         assert_eq!(state.focused(), None);
+    }
+
+    #[test]
+    fn pausing_closes_every_open_session_and_resuming_starts_a_new_one() {
+        let mut state = TrackerState::default();
+        state.reconcile_running(&set(&[1, 2, 3]), &set(&[1, 2]), |game| Some(game + 10));
+        state.observe_windows(Some(1), &set(&[1, 2]));
+        let actions = state.close_all();
+        assert_eq!(actions.len(), 4);
+        for action in [
+            Action::FocusEnded {
+                game_id: 1,
+                session_id: 11,
+            },
+            Action::SessionEnded {
+                game_id: 1,
+                session_id: 11,
+            },
+            Action::BackgroundEnded {
+                game_id: 2,
+                session_id: 12,
+            },
+            Action::SessionEnded {
+                game_id: 2,
+                session_id: 12,
+            },
+        ] {
+            assert!(actions.contains(&action));
+        }
+        assert!(state.running().is_empty());
+        assert!(state.background().is_empty());
+        assert_eq!(state.focused(), None);
+        // The paused interval must not extend the closed session, so resuming
+        // records a new session instead of counting the time spent paused.
+        assert_eq!(
+            state.reconcile_running(&set(&[1]), &set(&[1]), |_| Some(30)),
+            vec![Action::SessionStarted { game_id: 1 }]
+        );
+        assert_eq!(state.session(1), Some(30));
     }
 }

@@ -20,7 +20,7 @@
   let page: Page = 'library',
     gameId = 0,
     refresh = 0,
-    status: TrackingStatus = { games: [] },
+    status: TrackingStatus = { games: [], paused: false },
     savedTheme: Theme = 'dark',
     autoCheckUpdates = true,
     excludeBackgroundTime = true,
@@ -67,6 +67,13 @@
   const applyTheme = (theme: Theme) => (document.documentElement.dataset.theme = theme);
   function updateStatus(next: TrackingStatus) {
     status = next;
+  }
+  async function setPaused(paused: boolean) {
+    try {
+      await api.setTrackingPaused(paused);
+    } catch (error) {
+      console.warn('追跡状態を切り替えられませんでした', error);
+    }
   }
   onMount(() => {
     api
@@ -156,11 +163,17 @@
     >
   </nav>
   <div class="tracking-statuses">
-    {#if statusGroups.length === 0}<span class="tracking-status idle">● 待機中</span>{/if}
-    {#each statusGroups as group}<span
-        class="tracking-status {group.phase}"
-        title={group.games.map((game) => game.title).join('\n')}>● {trackingStatusText(group)}</span
-      >{/each}
+    {#if status.paused}<span
+        class="tracking-status paused"
+        title="タスクトレイまたは設定から再開できます">● 計測停止中</span
+      >{:else if statusGroups.length === 0}<span class="tracking-status idle">● 待機中</span>{/if}
+    {#if !status.paused}
+      {#each statusGroups as group}<span
+          class="tracking-status {group.phase}"
+          title={group.games.map((game) => game.title).join('\n')}
+          >● {trackingStatusText(group)}</span
+        >{/each}
+    {/if}
   </div>
 </header>
 <main>
@@ -214,6 +227,8 @@
         oncancel={() => (page = 'library')}
       />{:else}<Settings
         trackingActive={status.games.length > 0}
+        trackingPaused={status.paused}
+        onpausetoggle={() => setPaused(!status.paused)}
         ontheme={applyTheme}
         ondirty={(dirty) => (settingsDirty = dirty)}
         onsaved={(settings) => {

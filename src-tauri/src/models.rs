@@ -239,6 +239,7 @@ pub struct TrackingGameStatus {
 #[derive(Debug, Clone, Serialize)]
 pub struct TrackingStatus {
     pub games: Vec<TrackingGameStatus>,
+    pub paused: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

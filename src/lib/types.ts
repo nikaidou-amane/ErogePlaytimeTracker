@@ -170,6 +170,7 @@ export interface TrackingStatus {
     session_id: number | null;
     phase: 'starting' | 'foreground' | 'background' | 'window_transition';
   }>;
+  paused: boolean;
 }
 
 export interface BackupDataSummary {

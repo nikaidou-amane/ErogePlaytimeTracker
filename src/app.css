@@ -925,6 +925,9 @@ small {
 .tracking-status.window_transition {
   color: #c0a8ee;
 }
+.tracking-status.paused {
+  color: #8b8496;
+}
 .toolbar {
   display: grid;
   grid-template-columns:

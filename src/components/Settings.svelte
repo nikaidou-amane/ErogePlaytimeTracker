@@ -11,6 +11,8 @@
   export let ondirty: (dirty: boolean) => void = () => {};
   export let onsaved: (settings: Settings) => void = () => {};
   export let trackingActive = false;
+  export let trackingPaused = false;
+  export let onpausetoggle: () => void = () => {};
   type HotkeyField = 'screenshot_hotkey' | 'ocr_search_hotkey';
   const hotkeyFields: Array<{ field: HotkeyField; label: string }> = [
     { field: 'screenshot_hotkey', label: 'スクリーンショットキー' },
@@ -433,6 +435,19 @@
       onclick={() => selectTheme('blue')}
     ></button>
   </div>
+  <label class="check"
+    ><input
+      type="checkbox"
+      checked={!trackingPaused}
+      onchange={onpausetoggle}
+      aria-describedby="pause-tracking-help"
+    /> ゲームのプレイ時間を計測する</label
+  >
+  <p class="hint" id="pause-tracking-help">
+    オフにすると計測を停止します。停止中の時間はプレイ時間に含まれません。
+    実行中のゲームは計測が終了され、再開すると新しいプレイとして記録されます。
+    アプリを起動し直すと計測は再開します。
+  </p>
   <label class="check"
     ><input type="checkbox" bind:checked={settings.autostart} /> Windowsログイン時に自動起動</label
   ><label class="check"

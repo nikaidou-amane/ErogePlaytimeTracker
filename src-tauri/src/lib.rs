@@ -21,7 +21,7 @@ use std::{
 };
 use tauri::{
     Manager,
-    menu::{MenuBuilder, MenuItemBuilder},
+    menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
 };
 pub struct AppState {
@@ -125,13 +125,17 @@ pub fn run() {
                 hotkeys::bindings(&settings),
             );
             let show = MenuItemBuilder::with_id("show", "メインウィンドウを開く").build(app)?;
+            let pause = CheckMenuItemBuilder::with_id("pause", "ゲーム時間の計測を停止")
+                .checked(false)
+                .build(app)?;
             let status = MenuItemBuilder::with_id("status", "追跡状態: 待機中")
                 .enabled(false)
                 .build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "終了").build(app)?;
             let menu = MenuBuilder::new(app)
-                .items(&[&show, &status, &quit])
+                .items(&[&show, &pause, &status, &quit])
                 .build()?;
+            let pause_item = pause.clone();
             TrayIconBuilder::with_id("tracker")
                 .icon(tauri::include_image!("icons/32x32.png"))
                 .menu(&menu)
@@ -141,6 +145,15 @@ pub fn run() {
                         if let Some(w) = app.get_webview_window("main") {
                             let _ = w.show();
                             let _ = w.set_focus();
+                        }
+                    }
+                    "pause" => {
+                        if let Some(s) = app.try_state::<AppState>() {
+                            if s.tracker.paused() {
+                                s.tracker.resume();
+                            } else {
+                                s.tracker.pause();
+                            }
                         }
                     }
                     "quit" => {
@@ -153,6 +166,9 @@ pub fn run() {
                     _ => {}
                 })
                 .build(app)?;
+            // emit() mirrors the paused flag into this item, so the menu stays
+            // correct whether the user toggles from the tray or the settings UI.
+            tracker.set_pause_item(pause_item);
             // Only successful installed-app starts may create/advance notice state.
             // Development runs must not acknowledge the user's installed release.
             let update_notices = if cfg!(debug_assertions) {
@@ -237,6 +253,7 @@ pub fn run() {
             commands::cancel_backup_import,
             commands::take_backup_import_notice,
             commands::get_tracking_status,
+            commands::set_tracking_paused,
             commands::list_game_screenshots,
             commands::recognize_screenshot_text,
             commands::delete_game_screenshot,
