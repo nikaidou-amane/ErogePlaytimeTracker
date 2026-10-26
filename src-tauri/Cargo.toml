@@ -1,6 +1,6 @@
 [package]
 name = "eroge-playtime-tracker"
-version = "0.1.16"
+version = "0.1.17"
 description = "Foreground-aware visual novel playtime tracker"
 authors = ["Eroge Playtime Tracker contributors"]
 edition = "2024"
