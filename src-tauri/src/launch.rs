@@ -2,17 +2,18 @@ use std::path::{Path, PathBuf};
 
 /// Splits a Windows command line into a program and its arguments.
 ///
-/// Whitespace separates arguments unless it is inside a double-quoted section.
-/// A run of backslashes is literal unless it precedes a quote, matching the
-/// `CommandLineToArgvW` rules the Windows loader applies to the registered
-/// executable path already stored in the database.
+/// Spaces and tabs separate arguments unless they are inside double quotes.
+/// Doubled quotes within a quoted argument produce a literal quote, and
+/// backslashes are literal unless they precede a quote, following Windows C
+/// runtime argument quoting rules.
 pub fn split(command: &str) -> Vec<String> {
     let mut parts = vec![];
     let mut current = String::new();
     let mut quoted = false;
     let mut started = false;
     let mut backslashes = 0usize;
-    for character in command.chars() {
+    let mut characters = command.chars().peekable();
+    while let Some(character) = characters.next() {
         match character {
             '\\' => {
                 backslashes += 1;
@@ -22,13 +23,16 @@ pub fn split(command: &str) -> Vec<String> {
                 current.push_str(&"\\".repeat(backslashes / 2));
                 if backslashes % 2 == 1 {
                     current.push('"');
+                } else if quoted && characters.peek() == Some(&'"') {
+                    current.push('"');
+                    characters.next();
                 } else {
                     quoted = !quoted;
                 }
                 backslashes = 0;
                 started = true;
             }
-            _ if character.is_whitespace() && !quoted => {
+            ' ' | '\t' if !quoted => {
                 current.push_str(&"\\".repeat(backslashes));
                 backslashes = 0;
                 if started {
@@ -98,6 +102,67 @@ mod tests {
             vec!["game.exe", "--title", "my game"]
         );
         assert!(parsed("   ").is_empty());
+    }
+
+    #[test]
+    fn keeps_doubled_quotes_inside_quoted_arguments() {
+        assert_eq!(
+            parsed(r#"game.exe --title "a""b c" tail"#),
+            vec!["game.exe", "--title", "a\"b c", "tail"]
+        );
+        assert_eq!(
+            parsed(r#"game.exe "" "a""" tail"#),
+            vec!["game.exe", "", "a\"", "tail"]
+        );
+    }
+
+    #[test]
+    fn only_spaces_and_tabs_separate_arguments() {
+        assert_eq!(
+            parsed("game.exe\t--title ゲーム\u{3000}名.exe --text a\nb\u{a0}c"),
+            vec![
+                "game.exe",
+                "--title",
+                "ゲーム\u{3000}名.exe",
+                "--text",
+                "a\nb\u{a0}c"
+            ]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn parsing_regressions_match_windows_command_line_parsing() {
+        use windows::{
+            Win32::{
+                Foundation::{HLOCAL, LocalFree},
+                UI::Shell::CommandLineToArgvW,
+            },
+            core::PCWSTR,
+        };
+
+        for command in [
+            r#"game.exe --title "a""b""#,
+            r#"game.exe "" --title "my game""#,
+            "game.exe\t--title ゲーム\u{3000}名.exe --text a\nb\u{a0}c",
+            r#""C:\Program Files\game.exe" --title "my game""#,
+            r#"game.exe "C:\a\b\\" "a\"b" next"#,
+        ] {
+            let wide: Vec<u16> = command.encode_utf16().chain(Some(0)).collect();
+            let mut count = 0;
+            let arguments = unsafe { CommandLineToArgvW(PCWSTR(wide.as_ptr()), &mut count) };
+            assert!(!arguments.is_null());
+            let expected: Vec<String> = unsafe {
+                std::slice::from_raw_parts(arguments, count as usize)
+                    .iter()
+                    .map(|argument| argument.to_string().unwrap())
+                    .collect()
+            };
+            unsafe {
+                LocalFree(Some(HLOCAL(arguments.cast())));
+            }
+            assert_eq!(parsed(command), expected, "command: {command:?}");
+        }
     }
 
     #[test]
