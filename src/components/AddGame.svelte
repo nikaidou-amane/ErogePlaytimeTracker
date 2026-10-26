@@ -18,6 +18,7 @@
     releaseDateError = '',
     thumbnail_path = '',
     paths = '',
+    launch_command = '',
     metadata: Metadata | null = null,
     fetchingMeta = false,
     importingThumbnail = false,
@@ -78,6 +79,7 @@
           .split('\n')
           .map((x) => x.trim())
           .filter(Boolean),
+        launch_command: launch_command.trim() || undefined,
       });
       ondone(id);
     } catch (e) {
@@ -215,6 +217,11 @@
       class="file-picker"
       onclick={selectExecutables}>参照…</button
     ></label
+  ><label
+    >起動コマンド<input
+      bind:value={launch_command}
+      placeholder="例: game.exe -w（省略時は上の実行ファイルを起動）"
+    /></label
   >{#if error}<p class="error">{error}</p>{/if}
   <div class="actions">
     <button

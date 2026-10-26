@@ -63,6 +63,7 @@ export const api = {
     thumbnail_path?: string;
     source?: MetadataIdentity;
     executable_paths: string[];
+    launch_command?: string;
   }) => command<number>('create_game', { input }),
   updateGame: (
     id: number,
@@ -78,6 +79,8 @@ export const api = {
     command<void>('add_game_executable', { gameId, path }),
   removeExecutable: (id: number) => command<void>('remove_game_executable', { id }),
   launchGame: (gameId: number) => command<void>('launch_game', { gameId }),
+  setLaunchCommand: (gameId: number, launchCommand: string | null) =>
+    command<void>('set_launch_command', { gameId, command: launchCommand }),
   sessions: (gameId: number) => command<Session[]>('list_sessions', { gameId }),
   statistics: (period: StatisticsPeriodInput) =>
     command<StatisticsReport>('get_statistics', { period }),

@@ -1202,6 +1202,7 @@ mod tests {
                     executable_paths: vec![
                         parent.join("missing.exe").to_string_lossy().into_owned(),
                     ],
+                    launch_command: None,
                 },
                 Some(&thumbnail.to_string_lossy()),
             )
@@ -1327,6 +1328,7 @@ mod tests {
                  DROP INDEX idx_games_vndb_id;
                  ALTER TABLE games DROP COLUMN vndb_id;
                  ALTER TABLE games DROP COLUMN metadata_source;
+                 ALTER TABLE games DROP COLUMN launch_command;
                  DELETE FROM schema_migrations WHERE version>=5;",
             )
             .unwrap();

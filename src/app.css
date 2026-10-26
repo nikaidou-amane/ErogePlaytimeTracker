@@ -1950,6 +1950,9 @@ button.primary:disabled:hover {
   margin: 0 0 0.5rem;
   font-size: 1rem;
 }
+.game-executable-section h3.launch-command-title {
+  margin-top: 1.25rem;
+}
 .executable-add-row {
   margin-top: 0.45rem;
 }

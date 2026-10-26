@@ -3,6 +3,7 @@ mod commands;
 mod database;
 mod game_ocr;
 mod hotkeys;
+mod launch;
 mod metadata;
 mod models;
 mod ocr;
@@ -205,6 +206,7 @@ pub fn run() {
             commands::add_game_executable,
             commands::remove_game_executable,
             commands::launch_game,
+            commands::set_launch_command,
             commands::list_sessions,
             commands::get_statistics,
             commands::get_game_statistics,

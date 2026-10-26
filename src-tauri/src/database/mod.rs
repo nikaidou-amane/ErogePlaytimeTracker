@@ -16,7 +16,7 @@ use std::{
 
 #[derive(Clone)]
 pub struct Database(Arc<Mutex<Connection>>, Arc<Mutex<playtime::Cache>>);
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 7;
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 8;
 const MIGRATION_1: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
 CREATE TABLE brands(id INTEGER PRIMARY KEY, erogamescape_id INTEGER, name TEXT NOT NULL COLLATE NOCASE UNIQUE);
@@ -84,6 +84,11 @@ CREATE TABLE tracking_pause_intervals(
 );
 CREATE INDEX idx_tracking_pause_time ON tracking_pause_intervals(started_at);
 CREATE UNIQUE INDEX idx_tracking_pause_open ON tracking_pause_intervals((1)) WHERE ended_at IS NULL;
+"#;
+// NULL keeps the registered executable as the launch target, so games that never
+// opt into a custom command keep the previous behavior.
+const MIGRATION_8: &str = r#"
+ALTER TABLE games ADD COLUMN launch_command TEXT;
 "#;
 
 impl Database {
@@ -202,6 +207,14 @@ impl Database {
             tx.execute_batch(MIGRATION_7)?;
             tx.execute("INSERT INTO schema_migrations VALUES(7,?)", [now()])?;
         }
+        if !tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=8)",
+            [],
+            |r| r.get::<_, bool>(0),
+        )? {
+            tx.execute_batch(MIGRATION_8)?;
+            tx.execute("INSERT INTO schema_migrations VALUES(8,?)", [now()])?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -218,7 +231,12 @@ impl Database {
             .map(MetadataIdentity::normalized)
             .transpose()?;
         let n = now();
-        tx.execute("INSERT INTO games(erogamescape_id,vndb_id,metadata_source,title,brand_id,release_date,thumbnail_path,source_url,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",params![source.as_ref().and_then(MetadataIdentity::erogamescape_id),source.as_ref().and_then(MetadataIdentity::vndb_id),source.as_ref().map(MetadataIdentity::provider),input.title.trim(),brand,input.release_date,thumbnail,source.as_ref().map(MetadataIdentity::url),n,n])?;
+        let launch_command = input
+            .launch_command
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        tx.execute("INSERT INTO games(erogamescape_id,vndb_id,metadata_source,title,brand_id,release_date,thumbnail_path,source_url,launch_command,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",params![source.as_ref().and_then(MetadataIdentity::erogamescape_id),source.as_ref().and_then(MetadataIdentity::vndb_id),source.as_ref().map(MetadataIdentity::provider),input.title.trim(),brand,input.release_date,thumbnail,source.as_ref().map(MetadataIdentity::url),launch_command,n,n])?;
         let id = tx.last_insert_rowid();
         for p in &input.executable_paths {
             insert_executable(&tx, id, p)?
@@ -260,6 +278,17 @@ impl Database {
         }
         Ok(())
     }
+    pub fn set_launch_command(&self, id: i64, command: Option<&str>) -> Result<()> {
+        let command = command.map(str::trim).filter(|value| !value.is_empty());
+        let updated = self.0.lock().execute(
+            "UPDATE games SET launch_command=?,updated_at=? WHERE id=?",
+            params![command, now(), id],
+        )?;
+        if updated == 0 {
+            bail!("ゲームが見つかりません")
+        }
+        Ok(())
+    }
     pub fn delete_game(&self, id: i64) -> Result<()> {
         self.0
             .lock()
@@ -285,6 +314,18 @@ impl Database {
             )
             .optional()?
             .context("起動する実行ファイルが登録されていません")
+    }
+    pub fn launch_command(&self, game: i64) -> Result<Option<String>> {
+        Ok(self
+            .0
+            .lock()
+            .query_row(
+                "SELECT launch_command FROM games WHERE id=?",
+                [game],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten())
     }
     pub fn registered_executables(&self) -> Result<Vec<(i64, String, String)>> {
         let c = self.0.lock();
@@ -373,10 +414,10 @@ impl Database {
         summary.total_playtime_seconds =
             self.time_index(&c)?
                 .total(id, Utc::now().timestamp(), &app_settings(&c)?);
-        let (eid, vid, provider, url) = c.query_row(
-            "SELECT erogamescape_id,vndb_id,metadata_source,source_url FROM games WHERE id=?",
+        let (eid, vid, provider, url, launch_command) = c.query_row(
+            "SELECT erogamescape_id,vndb_id,metadata_source,source_url,launch_command FROM games WHERE id=?",
             [id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         )?;
         let mut q=c.prepare("SELECT id,game_id,path,file_name,created_at FROM game_executables WHERE game_id=? ORDER BY id")?;
         let executables = q
@@ -397,6 +438,7 @@ impl Database {
             metadata_source: provider,
             source_url: url,
             executables,
+            launch_command,
         })
     }
     pub fn list_sessions(&self, game: i64) -> Result<Vec<PlaySession>> {
@@ -1630,6 +1672,7 @@ mod tests {
                 thumbnail_path: None,
                 source: None,
                 executable_paths: vec![r#"C:\G\a.exe"#.into(), r#"C:\G\launcher.exe"#.into()],
+                launch_command: None,
             },
             None,
         )
@@ -1673,6 +1716,7 @@ mod tests {
                     thumbnail_path: None,
                     source: None,
                     executable_paths: vec![],
+                    launch_command: None,
                 },
                 None,
             )
@@ -1917,6 +1961,7 @@ mod tests {
             thumbnail_path: None,
             source: Some(MetadataIdentity::Vndb("v548".into())),
             executable_paths: vec![],
+            launch_command: None,
         };
         d.create_game(&input, None).unwrap();
         assert!(d.create_game(&input, None).is_err());
@@ -2076,6 +2121,7 @@ mod tests {
                     thumbnail_path: None,
                     source: None,
                     executable_paths: vec![],
+                    launch_command: None,
                 },
                 None,
             )
@@ -2198,6 +2244,52 @@ mod tests {
             2
         );
     }
+    #[test]
+    fn launch_command_defaults_to_none_and_trims_blank_values() {
+        let d = Database::memory().unwrap();
+        let g = game(&d);
+        assert_eq!(d.launch_command(g).unwrap(), None);
+        assert_eq!(d.get_game(g).unwrap().launch_command, None);
+
+        d.set_launch_command(g, Some("  game.exe -w  ")).unwrap();
+        assert_eq!(d.launch_command(g).unwrap().as_deref(), Some("game.exe -w"));
+        assert_eq!(
+            d.get_game(g).unwrap().launch_command.as_deref(),
+            Some("game.exe -w")
+        );
+
+        d.set_launch_command(g, Some("   ")).unwrap();
+        assert_eq!(
+            d.launch_command(g).unwrap(),
+            None,
+            "a blank command restores the registered executable"
+        );
+    }
+
+    #[test]
+    fn create_game_persists_a_launch_command() {
+        let d = Database::memory().unwrap();
+        let g = d
+            .create_game(
+                &CreateGameInput {
+                    title: "Launcher game".into(),
+                    brand: None,
+                    release_date: None,
+                    thumbnail_path: None,
+                    source: None,
+                    executable_paths: vec![r"D:\vn\game\game.exe".into()],
+                    launch_command: Some(" wrapper.exe --fullscreen".into()),
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            d.get_game(g).unwrap().launch_command.as_deref(),
+            Some("wrapper.exe --fullscreen"),
+            "create trims and stores the custom launch command"
+        );
+    }
+
     #[test]
     fn timestamp_playtime_is_derived_from_sessions_minus_background() {
         let d = Database::memory().unwrap();
@@ -2365,6 +2457,7 @@ mod tests {
                 thumbnail_path: None,
                 source: None,
                 executable_paths: vec![],
+                launch_command: None,
             },
             None,
         )
@@ -2391,6 +2484,7 @@ mod tests {
                     thumbnail_path: None,
                     source: None,
                     executable_paths: vec![],
+                    launch_command: None,
                 },
                 None,
             )
@@ -2578,6 +2672,7 @@ mod tests {
                     thumbnail_path: None,
                     source: None,
                     executable_paths: vec![r#"C:\Other\other.exe"#.into()],
+                    launch_command: None,
                 },
                 None,
             )
@@ -2634,6 +2729,7 @@ mod tests {
                     thumbnail_path: None,
                     source: None,
                     executable_paths: vec![],
+                    launch_command: None,
                 },
                 None,
             )

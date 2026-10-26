@@ -31,6 +31,7 @@ pub struct GameDetail {
     pub metadata_source: Option<String>,
     pub source_url: Option<String>,
     pub executables: Vec<Executable>,
+    pub launch_command: Option<String>,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct PlaySession {
@@ -142,6 +143,7 @@ pub struct CreateGameInput {
     pub source: Option<crate::metadata::MetadataIdentity>,
     #[serde(default)]
     pub executable_paths: Vec<String>,
+    pub launch_command: Option<String>,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct MetadataPreview {
