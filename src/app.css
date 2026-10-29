@@ -3855,6 +3855,15 @@ button.primary:disabled:hover {
 .settings-switch-row {
   cursor: pointer;
 }
+.settings-switch-sub {
+  padding-left: 44px;
+}
+.settings-switch-row:has(input:disabled) {
+  cursor: default;
+}
+.settings-switch-row:has(input:disabled) > span {
+  opacity: 0.6;
+}
 :root[data-theme] input.settings-switch {
   appearance: none;
   position: relative;

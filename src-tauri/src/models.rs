@@ -162,6 +162,7 @@ pub struct UpdateGameInput {
 #[serde(default)]
 pub struct AppSettings {
     pub autostart: bool,
+    pub start_minimized: bool,
     pub auto_check_updates: bool,
     pub skipped_update_version: Option<String>,
     pub close_to_tray: bool,
@@ -176,6 +177,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             autostart: false,
+            start_minimized: false,
             auto_check_updates: true,
             skipped_update_version: None,
             close_to_tray: true,
@@ -203,6 +205,15 @@ mod settings_tests {
         assert!(settings.exclude_background_time);
         assert_eq!(settings.skipped_update_version, None);
         assert!(settings.ocr_search_hotkey.is_empty());
+        assert!(!settings.start_minimized);
+    }
+
+    #[test]
+    fn start_minimized_is_an_opt_in_sub_option_of_autostart() {
+        assert!(!AppSettings::default().start_minimized);
+        let restored: AppSettings =
+            serde_json::from_str(r#"{"autostart":true,"start_minimized":true}"#).unwrap();
+        assert!(restored.autostart && restored.start_minimized);
     }
 
     #[test]

@@ -1383,6 +1383,7 @@ mod tests {
                 "app",
                 &serde_json::to_string(&AppSettings {
                     autostart: true,
+                    start_minimized: true,
                     auto_check_updates: false,
                     skipped_update_version: Some("0.1.9".into()),
                     close_to_tray: false,

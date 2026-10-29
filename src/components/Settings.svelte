@@ -47,6 +47,7 @@
   let recordingHotkey: HotkeyField | null = null;
   let settings: Settings = {
       autostart: false,
+      start_minimized: false,
       auto_check_updates: true,
       skipped_update_version: null,
       close_to_tray: true,
@@ -609,6 +610,19 @@
               type="checkbox"
               role="switch"
               bind:checked={settings.autostart}
+            /></label
+          >
+          <label class="settings-row settings-switch-row settings-switch-sub"
+            ><span
+              ><strong>起動時はタスクトレイに格納</strong><small
+                >ログイン時の自動起動だけに適用され、手動起動では画面を表示します。</small
+              ></span
+            ><input
+              class="settings-switch"
+              type="checkbox"
+              role="switch"
+              disabled={!settings.autostart}
+              bind:checked={settings.start_minimized}
             /></label
           >
           <label class="settings-row settings-switch-row"
