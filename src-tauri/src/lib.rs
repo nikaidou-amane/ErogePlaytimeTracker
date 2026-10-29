@@ -84,7 +84,14 @@ pub fn run() {
                     log::info!("migrated {migrated} sessions to background intervals")
                 }
                 db.set_setting("last_seen", &Utc::now().to_rfc3339())?;
-                let settings = db.settings()?;
+                let mut settings = db.settings()?;
+                // Dropping the skip for an already installed release keeps the update
+                // prompt from silently ignoring a newer one after an app update.
+                let skipped = settings.skipped_update_version.clone();
+                settings.prune_skipped_update_version(&app.package_info().version);
+                if settings.skipped_update_version != skipped {
+                    db.set_setting("app", &serde_json::to_string(&settings)?)?;
+                }
                 Ok((db, thumbs, screenshots, settings))
             })();
             let (db, thumbs, screenshots, settings) = match initialized {

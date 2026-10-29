@@ -188,6 +188,22 @@ impl Default for AppSettings {
         }
     }
 }
+impl AppSettings {
+    /// A skip only hides one release before it is installed. Once this build is that
+    /// version or newer the skip can never match again, so it would linger as a stale
+    /// notice for an already superseded release. Unparseable leftovers are dropped too.
+    pub fn prune_skipped_update_version(&mut self, current: &semver::Version) {
+        let Some(skipped) = self.skipped_update_version.as_deref() else {
+            return;
+        };
+        let superseded = semver::Version::parse(skipped)
+            .map(|skipped| current >= &skipped)
+            .unwrap_or(true);
+        if superseded {
+            self.skipped_update_version = None;
+        }
+    }
+}
 #[cfg(test)]
 mod settings_tests {
     use super::AppSettings;
@@ -213,6 +229,36 @@ mod settings_tests {
         let restored: AppSettings =
             serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
         assert!(!restored.exclude_background_time);
+    }
+
+    #[test]
+    fn skipped_update_version_is_cleared_once_that_release_is_installed() {
+        let version = |value: &str| value.parse::<semver::Version>().unwrap();
+
+        let mut older = AppSettings {
+            skipped_update_version: Some("0.1.18".into()),
+            ..Default::default()
+        };
+        older.prune_skipped_update_version(&version("0.1.19"));
+        assert_eq!(older.skipped_update_version, None);
+
+        let mut current = AppSettings {
+            skipped_update_version: Some("0.1.19".into()),
+            ..Default::default()
+        };
+        current.prune_skipped_update_version(&version("0.1.19"));
+        assert_eq!(current.skipped_update_version, None);
+
+        let mut pending = AppSettings {
+            skipped_update_version: Some("0.1.19".into()),
+            ..Default::default()
+        };
+        pending.prune_skipped_update_version(&version("0.1.18"));
+        assert_eq!(pending.skipped_update_version.as_deref(), Some("0.1.19"));
+
+        let mut none = AppSettings::default();
+        none.prune_skipped_update_version(&version("0.1.19"));
+        assert_eq!(none.skipped_update_version, None);
     }
 }
 #[derive(Debug, Clone, Serialize)]

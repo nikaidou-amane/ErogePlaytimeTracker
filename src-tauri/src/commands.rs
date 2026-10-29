@@ -485,8 +485,20 @@ pub fn update_settings(
     result
 }
 #[tauri::command]
-pub fn skip_update_version(state: State<AppState>, version: String) -> Cmd<()> {
+pub fn skip_update_version(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    version: String,
+) -> Cmd<()> {
     let mut settings = state.settings();
+    // Only a release newer than this build may be skipped. Anything else is already
+    // installed or superseded, so storing it would leave a stale skip behind.
+    let current = app.package_info().version.clone();
+    let requested = semver::Version::parse(&version)
+        .map_err(|_| user_error("更新バージョンを確認できませんでした。"))?;
+    if requested <= current {
+        return Ok(());
+    }
     settings.skipped_update_version = Some(version);
     state
         .db
