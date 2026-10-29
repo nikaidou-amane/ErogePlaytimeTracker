@@ -5,6 +5,7 @@
   import { relaunch } from '@tauri-apps/plugin-process';
   import { check } from '@tauri-apps/plugin-updater';
   import { api } from '../lib/api';
+  import { backupFilename } from '../lib/backupFilename';
   import PauseHistory from './PauseHistory.svelte';
   import SettingsIcon from './SettingsIcon.svelte';
   import { userErrorMessage } from '../lib/errors';
@@ -289,13 +290,6 @@
     if (!updateContentLength) return '更新をダウンロードしています…';
     const percent = Math.min(100, Math.round((updateDownloaded / updateContentLength) * 100));
     return `更新をダウンロードしています… ${percent}%`;
-  }
-  function backupFilename() {
-    const date = new Date();
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `eroge-playtime-tracker-${year}-${month}-${day}.eptbackup`;
   }
   function formatBytes(bytes: number) {
     if (bytes < 1024) return `${bytes} B`;
