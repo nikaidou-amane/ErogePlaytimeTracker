@@ -2,8 +2,10 @@
   import { onMount } from 'svelte';
   import {
     advanceChartInertia,
+    chartAxisTop,
     chartAxisTicks,
     chartPanScrollLeft,
+    chartScale,
     compactDuration,
     dailyTrend,
     formatDateKey,
@@ -46,9 +48,8 @@
   let pinnedIndex: number | null = null;
   let activeIndex: number | null = null;
   let currentDays = days;
-  let chartPixelHeight = 180;
-  let chartPixelScale = 1;
-  let chartPixelOffset = 0;
+  let chartClientWidth = 0;
+  let chartClientHeight = 0;
   let tooltipLeft = 0;
   let tooltipAlignStart = false;
   let tooltipAlignEnd = false;
@@ -70,6 +71,10 @@
   $: plotTop = 14;
   $: plotBottom = chartViewHeight - 40;
   $: plotHeight = plotBottom - plotTop;
+  // The labels sit outside the SVG, so they must repeat the viewBox mapping exactly.
+  // Using the live client size keeps them locked to the gridlines through every relayout;
+  // a geometry captured once went stale and drifted after the page reflowed.
+  $: axisScale = chartScale(chartWidth, chartViewHeight, chartClientWidth, chartClientHeight);
   $: if (days !== currentDays) {
     stopInertia();
     resetPan();
@@ -108,7 +113,7 @@
   $: accessibleValue = accessiblePoint
     ? `${formatDateKey(accessiblePoint.date)}、合計${compactDuration(accessiblePoint.playtime_seconds)}、累計${compactDuration(accessiblePoint.cumulative_seconds)}`
     : 'データなし';
-  $: if (chartSvgElement && chartWidth) requestAnimationFrame(syncAxisLayout);
+  $: if (chartSvgElement && chartWidth) requestAnimationFrame(syncTooltipPosition);
   $: if (activeIndex !== null && chartContainerElement && viewportElement && chartWidth) {
     requestAnimationFrame(syncTooltipPosition);
   }
@@ -124,9 +129,9 @@
     document.addEventListener('click', handleDocumentClick);
     viewportElement.addEventListener('wheel', handleWheel, { passive: false });
     viewportElement.addEventListener('scroll', syncTooltipPosition);
-    const resizeObserver = new ResizeObserver(syncAxisLayout);
+    const resizeObserver = new ResizeObserver(syncTooltipPosition);
     resizeObserver.observe(chartSvgElement);
-    syncAxisLayout();
+    syncTooltipPosition();
     return () => {
       document.removeEventListener('click', handleDocumentClick);
       viewportElement.removeEventListener('wheel', handleWheel);
@@ -136,17 +141,6 @@
       resetPan();
     };
   });
-
-  function syncAxisLayout() {
-    if (!chartSvgElement) return;
-    const bounds = chartSvgElement.getBoundingClientRect();
-    if (!bounds.width || !bounds.height) return;
-    const scale = Math.min(bounds.width / chartWidth, bounds.height / chartViewHeight);
-    chartPixelHeight = bounds.height;
-    chartPixelScale = scale;
-    chartPixelOffset = (bounds.height - chartViewHeight * scale) / 2;
-    syncTooltipPosition();
-  }
 
   function syncTooltipPosition() {
     if (activeIndex === null || !points.length || !chartContainerElement || !viewportElement)
@@ -174,11 +168,11 @@
   }
 
   function axisTickTop(ratio: number) {
-    return chartPixelOffset + (plotBottom - ratio * plotHeight) * chartPixelScale;
+    return chartAxisTop(axisScale, plotBottom - ratio * plotHeight);
   }
 
   function axisTitleTop() {
-    return chartPixelOffset + (chartViewHeight - 16) * chartPixelScale;
+    return chartAxisTop(axisScale, chartViewHeight - 16);
   }
 
   function pointX(index: number, pointCount: number, graphWidth: number) {
@@ -448,11 +442,7 @@
 </script>
 
 <div bind:this={chartContainerElement} class="statistics-combined-chart">
-  <div
-    class="statistics-chart-y-axis daily"
-    style={`height: ${chartPixelHeight}px`}
-    aria-hidden="true"
-  >
+  <div class="statistics-chart-y-axis daily" aria-hidden="true">
     {#each dailyAxisTicks as tick}<span
         class="statistics-chart-y-tick"
         style={`top: ${axisTickTop(tick.ratio)}px`}>{compactDuration(tick.value)}</span
@@ -487,6 +477,8 @@
       >
         <svg
           bind:this={chartSvgElement}
+          bind:clientHeight={chartClientHeight}
+          bind:clientWidth={chartClientWidth}
           class="statistics-chart"
           viewBox={`0 0 ${chartWidth} ${chartViewHeight}`}
           role="img"
@@ -610,11 +602,7 @@
     <span class="statistics-chart-edge-fade end" aria-hidden="true"></span>
     <span class="statistics-chart-zoom" aria-live="polite">{Math.round(zoom * 100)}%</span>
   {/if}
-  <div
-    class="statistics-chart-y-axis cumulative"
-    style={`height: ${chartPixelHeight}px`}
-    aria-hidden="true"
-  >
+  <div class="statistics-chart-y-axis cumulative" aria-hidden="true">
     {#each cumulativeAxisTicks as tick}<span
         class="statistics-chart-y-tick"
         style={`top: ${axisTickTop(tick.ratio)}px`}>{compactDuration(tick.value)}</span

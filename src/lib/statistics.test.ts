@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   advanceChartInertia,
+  chartAxisTop,
   chartAxisTicks,
   chartPanScrollLeft,
+  chartScale,
   compactDuration,
   dailyTrend,
   nextChartZoom,
@@ -98,5 +100,54 @@ describe('statistics helpers', () => {
       scrollLeft: 600,
       velocity: 0,
     });
+  });
+
+  it('maps the viewBox onto the rendered box so axis labels follow the gridlines', () => {
+    // Wide enough that the height is the limiting side, which is the normal case.
+    expect(chartScale(900, 180, 832, 166)).toEqual({ scale: 166 / 180, offset: 0 });
+    // Wider than the viewBox aspect ratio: the width limits and the rest is offset.
+    expect(chartScale(900, 180, 900, 400)).toEqual({ scale: 1, offset: 110 });
+    // Missing measurements must not divide by zero or move the labels.
+    expect(chartScale(900, 180, 0, 0)).toEqual({ scale: 1, offset: 0 });
+  });
+
+  it('places an axis label exactly on the gridline for its ratio', () => {
+    const plotTop = 14;
+    const viewBoxHeight = 180;
+    const plotBottom = viewBoxHeight - 40;
+    const plotHeight = plotBottom - plotTop;
+    const geometry = chartScale(900, viewBoxHeight, 832, 166);
+
+    for (const ratio of [0, 1 / 3, 2 / 3, 1]) {
+      const gridlineY = plotBottom - ratio * plotHeight;
+      expect(chartAxisTop(geometry, gridlineY)).toBeCloseTo(gridlineY * (166 / 180), 10);
+    }
+  });
+
+  it('keeps axis labels aligned after the chart box changes size', () => {
+    const width = 900;
+    const viewBoxHeight = 180;
+    const plotBottom = viewBoxHeight - 40;
+    const plotHeight = plotBottom - 14;
+    const ratios = [0, 1 / 3, 2 / 3, 1];
+
+    for (const [clientWidth, clientHeight] of [
+      [832, 166],
+      [700, 140],
+      [1040, 208],
+    ]) {
+      const geometry = chartScale(width, viewBoxHeight, clientWidth, clientHeight);
+      for (const ratio of ratios) {
+        // The offset must be identical for every ratio, otherwise spacing drifts.
+        expect(geometry.offset).toBeCloseTo(
+          (clientHeight - viewBoxHeight * geometry.scale) / 2,
+          10,
+        );
+        expect(chartAxisTop(geometry, plotBottom - ratio * plotHeight)).toBeCloseTo(
+          geometry.offset + (plotBottom - ratio * plotHeight) * geometry.scale,
+          10,
+        );
+      }
+    }
   });
 });

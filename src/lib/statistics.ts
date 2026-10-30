@@ -82,6 +82,34 @@ export function chartPanScrollLeft(
   return Math.min(maximumScrollLeft, Math.max(0, startScrollLeft - pointerDeltaX));
 }
 
+export interface ChartScale {
+  scale: number;
+  offset: number;
+}
+
+/**
+ * Resolves how a viewBox maps onto the rendered SVG box. The y-axis labels are drawn
+ * outside the SVG, so they have to repeat this mapping to line up with the gridlines.
+ * Both values come from the live client size, which keeps them correct after any relayout.
+ */
+export function chartScale(
+  viewBoxWidth: number,
+  viewBoxHeight: number,
+  clientWidth: number,
+  clientHeight: number,
+): ChartScale {
+  if (!clientWidth || !clientHeight || !viewBoxWidth || !viewBoxHeight) {
+    return { scale: 1, offset: 0 };
+  }
+  const scale = Math.min(clientWidth / viewBoxWidth, clientHeight / viewBoxHeight);
+  return { scale, offset: (clientHeight - viewBoxHeight * scale) / 2 };
+}
+
+/** Converts a viewBox y coordinate into the pixel offset the axis label is placed at. */
+export function chartAxisTop({ scale, offset }: ChartScale, viewBoxY: number) {
+  return offset + viewBoxY * scale;
+}
+
 export function advanceChartInertia(
   scrollLeft: number,
   velocity: number,
