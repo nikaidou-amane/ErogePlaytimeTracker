@@ -46,9 +46,6 @@
   let pinnedIndex: number | null = null;
   let activeIndex: number | null = null;
   let currentDays = days;
-  let chartPixelHeight = 180;
-  let chartPixelScale = 1;
-  let chartPixelOffset = 0;
   let tooltipLeft = 0;
   let tooltipAlignStart = false;
   let tooltipAlignEnd = false;
@@ -70,6 +67,10 @@
   $: plotTop = 14;
   $: plotBottom = chartViewHeight - 40;
   $: plotHeight = plotBottom - plotTop;
+  // The axis labels live outside the SVG and are placed as percentages of the axis box.
+  // The box is sized to match the SVG, and the SVG always keeps its viewBox ratio (no
+  // min-height can stretch it), so these percentages track the gridlines with no
+  // measurement, no observer, and nothing that can go stale after a relayout.
   $: if (days !== currentDays) {
     stopInertia();
     resetPan();
@@ -108,7 +109,7 @@
   $: accessibleValue = accessiblePoint
     ? `${formatDateKey(accessiblePoint.date)}、合計${compactDuration(accessiblePoint.playtime_seconds)}、累計${compactDuration(accessiblePoint.cumulative_seconds)}`
     : 'データなし';
-  $: if (chartSvgElement && chartWidth) requestAnimationFrame(syncAxisLayout);
+  $: if (chartSvgElement && chartWidth) requestAnimationFrame(syncTooltipPosition);
   $: if (activeIndex !== null && chartContainerElement && viewportElement && chartWidth) {
     requestAnimationFrame(syncTooltipPosition);
   }
@@ -124,9 +125,9 @@
     document.addEventListener('click', handleDocumentClick);
     viewportElement.addEventListener('wheel', handleWheel, { passive: false });
     viewportElement.addEventListener('scroll', syncTooltipPosition);
-    const resizeObserver = new ResizeObserver(syncAxisLayout);
+    const resizeObserver = new ResizeObserver(syncTooltipPosition);
     resizeObserver.observe(chartSvgElement);
-    syncAxisLayout();
+    syncTooltipPosition();
     return () => {
       document.removeEventListener('click', handleDocumentClick);
       viewportElement.removeEventListener('wheel', handleWheel);
@@ -136,17 +137,6 @@
       resetPan();
     };
   });
-
-  function syncAxisLayout() {
-    if (!chartSvgElement) return;
-    const bounds = chartSvgElement.getBoundingClientRect();
-    if (!bounds.width || !bounds.height) return;
-    const scale = Math.min(bounds.width / chartWidth, bounds.height / chartViewHeight);
-    chartPixelHeight = bounds.height;
-    chartPixelScale = scale;
-    chartPixelOffset = (bounds.height - chartViewHeight * scale) / 2;
-    syncTooltipPosition();
-  }
 
   function syncTooltipPosition() {
     if (activeIndex === null || !points.length || !chartContainerElement || !viewportElement)
@@ -174,11 +164,11 @@
   }
 
   function axisTickTop(ratio: number) {
-    return chartPixelOffset + (plotBottom - ratio * plotHeight) * chartPixelScale;
+    return ((plotBottom - ratio * plotHeight) / chartViewHeight) * 100;
   }
 
   function axisTitleTop() {
-    return chartPixelOffset + (chartViewHeight - 16) * chartPixelScale;
+    return ((chartViewHeight - 16) / chartViewHeight) * 100;
   }
 
   function pointX(index: number, pointCount: number, graphWidth: number) {
@@ -448,15 +438,26 @@
 </script>
 
 <div bind:this={chartContainerElement} class="statistics-combined-chart">
+  <!-- The axis frame repeats the SVG box: same width as the viewport and the same
+       viewBox aspect ratio, so its height is exactly the rendered SVG height. Placing the
+       labels by percentage inside it keeps them on the gridlines with no measurement. -->
   <div
-    class="statistics-chart-y-axis daily"
-    style={`height: ${chartPixelHeight}px`}
+    class="statistics-chart-axis-frame"
+    style={`aspect-ratio: ${width} / ${chartViewHeight}`}
     aria-hidden="true"
   >
-    {#each dailyAxisTicks as tick}<span
-        class="statistics-chart-y-tick"
-        style={`top: ${axisTickTop(tick.ratio)}px`}>{compactDuration(tick.value)}</span
-      >{/each}<span class="statistics-chart-y-title" style={`top: ${axisTitleTop()}px`}>日別</span>
+    <div class="statistics-chart-y-axis daily">
+      {#each dailyAxisTicks as tick}<span
+          class="statistics-chart-y-tick"
+          style={`top: ${axisTickTop(tick.ratio)}%`}>{compactDuration(tick.value)}</span
+        >{/each}<span class="statistics-chart-y-title" style={`top: ${axisTitleTop()}%`}>日別</span>
+    </div>
+    <div class="statistics-chart-y-axis cumulative">
+      {#each cumulativeAxisTicks as tick}<span
+          class="statistics-chart-y-tick"
+          style={`top: ${axisTickTop(tick.ratio)}%`}>{compactDuration(tick.value)}</span
+        >{/each}<span class="statistics-chart-y-title" style={`top: ${axisTitleTop()}%`}>累計</span>
+    </div>
   </div>
   <div bind:this={viewportElement} class:zoomed={zoom > 1.01} class="statistics-chart-viewport">
     <div class="statistics-chart-stage" style={`width: ${zoom * 100}%`}>
@@ -610,14 +611,4 @@
     <span class="statistics-chart-edge-fade end" aria-hidden="true"></span>
     <span class="statistics-chart-zoom" aria-live="polite">{Math.round(zoom * 100)}%</span>
   {/if}
-  <div
-    class="statistics-chart-y-axis cumulative"
-    style={`height: ${chartPixelHeight}px`}
-    aria-hidden="true"
-  >
-    {#each cumulativeAxisTicks as tick}<span
-        class="statistics-chart-y-tick"
-        style={`top: ${axisTickTop(tick.ratio)}px`}>{compactDuration(tick.value)}</span
-      >{/each}<span class="statistics-chart-y-title" style={`top: ${axisTitleTop()}px`}>累計</span>
-  </div>
 </div>
