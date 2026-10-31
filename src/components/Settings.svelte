@@ -524,7 +524,7 @@
           <label class="settings-row settings-switch-row"
             ><span
               ><strong>「攻略中」のみ計測</strong><small
-                >それ以外のステータスは一時停止として扱う。今後の計測のみに適用</small
+                >それ以外のプレイ状況のゲームは一時停止として扱う</small
               ></span
             ><input
               class="settings-switch"
