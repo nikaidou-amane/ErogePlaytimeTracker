@@ -16,7 +16,7 @@ use std::{
 
 #[derive(Clone)]
 pub struct Database(Arc<Mutex<Connection>>, Arc<Mutex<playtime::Cache>>);
-pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 8;
+pub(crate) const CURRENT_SCHEMA_VERSION: i64 = 9;
 const MIGRATION_1: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
 CREATE TABLE brands(id INTEGER PRIMARY KEY, erogamescape_id INTEGER, name TEXT NOT NULL COLLATE NOCASE UNIQUE);
@@ -89,6 +89,12 @@ CREATE UNIQUE INDEX idx_tracking_pause_open ON tracking_pause_intervals((1)) WHE
 // opt into a custom command keep the previous behavior.
 const MIGRATION_8: &str = r#"
 ALTER TABLE games ADD COLUMN launch_command TEXT;
+"#;
+// 「攻略中」以外のゲームを計測対象外にする設定で自動的に開いた一時停止を、
+// どのセッションに由来するか記録する。セッション終了時にこの区間だけを閉じる。
+const MIGRATION_9: &str = r#"
+ALTER TABLE tracking_pause_intervals ADD COLUMN play_session_id INTEGER
+    REFERENCES play_sessions(id) ON DELETE SET NULL;
 "#;
 
 impl Database {
@@ -214,6 +220,14 @@ impl Database {
         )? {
             tx.execute_batch(MIGRATION_8)?;
             tx.execute("INSERT INTO schema_migrations VALUES(8,?)", [now()])?;
+        }
+        if !tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=9)",
+            [],
+            |r| r.get::<_, bool>(0),
+        )? {
+            tx.execute_batch(MIGRATION_9)?;
+            tx.execute("INSERT INTO schema_migrations VALUES(9,?)", [now()])?;
         }
         tx.commit()?;
         Ok(())
@@ -493,7 +507,30 @@ impl Database {
             "INSERT INTO play_sessions(game_id,launched_at,created_at,updated_at,background_migrated) VALUES(?,?,?,?,1)",
             params![game, at, n, n],
         )?;
-        Ok(c.last_insert_rowid())
+        let id = c.last_insert_rowid();
+        // 「攻略中」以外のゲームを計測対象外にする設定では、セッション開始と同時に
+        // その時点から一時停止区間を開き、プレイ時間が加算されないようにする。
+        // すでに一時停止中なら新しい区間は不要（重複は許可されない）。
+        if app_settings(&c)?.track_only_playing_status {
+            let paused: bool = c.query_row(
+                "SELECT EXISTS(SELECT 1 FROM tracking_pause_intervals WHERE ended_at IS NULL)",
+                [],
+                |row| row.get(0),
+            )?;
+            if !paused {
+                let play_status: String =
+                    c.query_row("SELECT play_status FROM games WHERE id=?1", [game], |row| {
+                        row.get(0)
+                    })?;
+                if play_status != TRACKED_PLAY_STATUS {
+                    c.execute(
+                        "INSERT INTO tracking_pause_intervals(started_at,created_at,updated_at,play_session_id) VALUES(?1,?1,?1,?2)",
+                        params![at, id],
+                    )?;
+                }
+            }
+        }
+        Ok(id)
     }
     pub fn end_session(&self, id: i64, at: &str) -> Result<()> {
         let mut c = self.0.lock();
@@ -503,6 +540,12 @@ impl Database {
         tx.execute(
             "UPDATE play_sessions SET exited_at=?,updated_at=? WHERE id=?",
             params![at, now(), id],
+        )?;
+        // このセッションのために自動で開いた一時停止だけを閉じ、ユーザーの手動一時停止は
+        // そのまま維持する。
+        tx.execute(
+            "UPDATE tracking_pause_intervals SET ended_at=?1,updated_at=?1 WHERE play_session_id=?2 AND ended_at IS NULL",
+            params![at, id],
         )?;
         rebuild_focus_mirror(&tx, id)?;
         tx.commit()?;
@@ -1442,6 +1485,9 @@ fn trim_statistics_to_active_range(mut report: StatisticsReport) -> StatisticsRe
         report.summary.total_playtime_seconds / report.days.len() as i64;
     report
 }
+
+/// 計測対象にする play_status。設定が有効なときはこれ以外を一時停止として扱う。
+const TRACKED_PLAY_STATUS: &str = "playing";
 
 const GAME_QUERY: &str = "SELECT g.id,g.title,b.name,g.release_date,g.thumbnail_path,g.created_at,
 0 total_playtime_seconds,
@@ -2445,6 +2491,115 @@ mod tests {
             .unwrap();
         assert_eq!(legacy_focus_seconds, recorded.playtime_seconds);
     }
+    #[test]
+    fn starting_a_session_pauses_tracking_when_only_playing_status_is_counted() {
+        let d = Database::memory().unwrap();
+        let playing = game(&d);
+        d.update_play_status(playing, "playing").unwrap();
+        let completed = create_completed_game(&d);
+        enable_playing_status_gate(&d);
+
+        // 「攻略中」のゲームは一時停止を開かない。
+        let session = d.start_session(playing, "2026-01-01T00:00:00Z").unwrap();
+        assert!(d.active_pause().unwrap().is_none());
+        d.end_session(session, "2026-01-01T00:10:00Z").unwrap();
+
+        // それ以外は開始時点から一時停止として扱う。
+        d.start_session(completed, "2026-01-01T01:00:00Z").unwrap();
+        let pause = d
+            .active_pause()
+            .unwrap()
+            .expect("non-playing game should open a pause");
+        assert_eq!(
+            DateTime::parse_from_rfc3339(&pause.started_at)
+                .unwrap()
+                .timestamp(),
+            DateTime::parse_from_rfc3339("2026-01-01T01:00:00Z")
+                .unwrap()
+                .timestamp()
+        );
+    }
+
+    #[test]
+    fn ending_a_session_closes_only_the_pause_it_opened() {
+        let d = Database::memory().unwrap();
+        let completed = create_completed_game(&d);
+        enable_playing_status_gate(&d);
+
+        let session = d.start_session(completed, "2026-01-01T00:00:00Z").unwrap();
+        assert!(d.active_pause().unwrap().is_some());
+
+        d.end_session(session, "2026-01-01T00:30:00Z").unwrap();
+        assert!(
+            d.active_pause().unwrap().is_none(),
+            "the automatic pause must not outlive its session"
+        );
+    }
+
+    #[test]
+    fn starting_a_session_keeps_manual_pauses_untouched() {
+        let d = Database::memory().unwrap();
+        let playing = game(&d);
+        d.update_play_status(playing, "playing").unwrap();
+        enable_playing_status_gate(&d);
+
+        d.set_paused(true, "2026-01-01T00:00:00Z").unwrap();
+        d.start_session(playing, "2026-01-01T00:05:00Z").unwrap();
+
+        // 手動の一時停止は閉じず、重複する区間も作らない。
+        let pause = d.active_pause().unwrap().expect("manual pause stays open");
+        assert_eq!(
+            DateTime::parse_from_rfc3339(&pause.started_at)
+                .unwrap()
+                .timestamp(),
+            DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+                .unwrap()
+                .timestamp()
+        );
+    }
+
+    #[test]
+    fn playing_status_gate_is_off_by_default() {
+        let d = Database::memory().unwrap();
+        let completed = create_completed_game(&d);
+        d.start_session(completed, "2026-01-01T00:00:00Z").unwrap();
+        assert!(
+            d.active_pause().unwrap().is_none(),
+            "tracking must not pause unless the setting is enabled"
+        );
+    }
+
+    fn enable_playing_status_gate(d: &Database) {
+        d.set_setting(
+            "app",
+            &serde_json::to_string(&AppSettings {
+                track_only_playing_status: true,
+                ..AppSettings::default()
+            })
+            .unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn create_completed_game(d: &Database) -> i64 {
+        let id = d
+            .create_game(
+                &CreateGameInput {
+                    title: "Completed".into(),
+                    brand: None,
+                    release_date: None,
+                    thumbnail_path: None,
+                    source: None,
+                    executable_paths: vec![],
+                    launch_command: None,
+                },
+                None,
+            )
+            .unwrap();
+        d.update_play_status(id, "completed").unwrap();
+        id
+    }
+
     #[test]
     fn brand_list_is_independent_from_game_filtering() {
         let d = Database::memory().unwrap();

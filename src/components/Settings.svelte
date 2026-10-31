@@ -52,6 +52,7 @@
       close_to_tray: true,
       exclude_background_time: true,
       exclude_pause_time: true,
+      track_only_playing_status: false,
       tracking_pause_hotkey: '',
       theme: 'dark',
       screenshot_hotkey: '',
@@ -514,6 +515,18 @@
               type="checkbox"
               role="switch"
               bind:checked={settings.exclude_background_time}
+            /></label
+          >
+          <label class="settings-row settings-switch-row"
+            ><span
+              ><strong>「攻略中」のみ計測</strong><small
+                >それ以外のステータスは一時停止として扱う</small
+              ></span
+            ><input
+              class="settings-switch"
+              type="checkbox"
+              role="switch"
+              bind:checked={settings.track_only_playing_status}
             /></label
           >
           <div class="settings-card-note">

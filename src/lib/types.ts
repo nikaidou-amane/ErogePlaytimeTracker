@@ -162,6 +162,7 @@ export interface Settings {
   close_to_tray: boolean;
   exclude_background_time: boolean;
   exclude_pause_time: boolean;
+  track_only_playing_status: boolean;
   tracking_pause_hotkey: string;
   theme: Theme;
   screenshot_hotkey: string;

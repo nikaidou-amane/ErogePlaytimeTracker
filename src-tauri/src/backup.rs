@@ -1388,6 +1388,7 @@ mod tests {
                     close_to_tray: false,
                     exclude_background_time: false,
                     exclude_pause_time: true,
+                    track_only_playing_status: false,
                     tracking_pause_hotkey: String::new(),
                     theme: "blue".into(),
                     screenshot_hotkey: "F10".into(),
