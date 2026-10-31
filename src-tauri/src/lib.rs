@@ -9,6 +9,7 @@ mod models;
 mod ocr;
 mod pause_icons;
 mod screenshot;
+mod startup;
 mod thumbnail;
 mod tracking;
 mod update_notice;
@@ -44,6 +45,7 @@ impl AppState {
 }
 pub fn run() {
     tauri::Builder::default()
+        .manage(startup::restart_environment(tauri::Env::default()))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
