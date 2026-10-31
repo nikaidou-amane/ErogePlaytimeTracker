@@ -15,7 +15,7 @@
   const currentYear = today.getFullYear();
   const currentMonth = today.getMonth() + 1;
   const recentDayOptions = [7, 14, 30, 90];
-  let kind: StatisticsPeriodKind = 'month';
+  let kind: StatisticsPeriodKind = 'recent';
   let selectedYear = currentYear;
   let selectedMonth = currentMonth;
   let selectedRecentDays = 7;
@@ -183,7 +183,7 @@
             onchange={(event) =>
               (selectedRecentDays = Number((event.currentTarget as HTMLSelectElement).value))}
           >
-            {#each recentDayOptions as days}<option value={days}>直近{days}日間</option>{/each}
+            {#each recentDayOptions as days}<option value={days}>{days}日間</option>{/each}
           </select>
         </div>
       {:else}
