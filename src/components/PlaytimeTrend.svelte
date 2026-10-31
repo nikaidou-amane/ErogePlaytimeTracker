@@ -250,7 +250,9 @@
     const month = Number(date.slice(5, 7));
     const day = Number(date.slice(8, 10));
     if (kind === 'month') return `${day}日`;
-    if (kind === 'year' || (fixedRange && points.length <= 370)) return `${month}/${day}`;
+    if (kind === 'recent' || kind === 'year' || (fixedRange && points.length <= 370)) {
+      return `${month}/${day}`;
+    }
     return `${year}/${month}`;
   }
 

@@ -14,9 +14,11 @@
   const today = new Date();
   const currentYear = today.getFullYear();
   const currentMonth = today.getMonth() + 1;
+  const recentDayOptions = [7, 14, 30, 90];
   let kind: StatisticsPeriodKind = 'month';
   let selectedYear = currentYear;
   let selectedMonth = currentMonth;
+  let selectedRecentDays = 7;
   let report: StatisticsReport | null = null;
   let error = '';
   let loading = true;
@@ -28,8 +30,8 @@
     (maximum, game) => Math.max(maximum, game.playtime_seconds),
     0,
   );
-  $: request = periodInput(kind, selectedYear, selectedMonth);
-  $: requestKey = `${request.kind}|${request.year ?? ''}|${request.month ?? ''}|${calculationKey}`;
+  $: request = periodInput(kind, selectedYear, selectedMonth, selectedRecentDays);
+  $: requestKey = `${request.kind}|${request.year ?? ''}|${request.month ?? ''}|${request.days ?? ''}|${calculationKey}`;
   $: if (requestKey !== loadedKey) {
     loadedKey = requestKey;
     report = null;
@@ -48,12 +50,15 @@
       : kind === 'year'
         ? selectedYear < currentYear
         : false;
+  $: navigable = kind === 'month' || kind === 'year';
 
   function periodInput(
     periodKind: StatisticsPeriodKind,
     year: number,
     month: number,
+    recentDays: number,
   ): StatisticsPeriodInput {
+    if (periodKind === 'recent') return { kind: periodKind, days: recentDays };
     if (periodKind === 'month') return { kind: periodKind, year, month };
     if (periodKind === 'year') return { kind: periodKind, year };
     return { kind: periodKind };
@@ -123,6 +128,10 @@
     <div class="statistics-period-controls">
       <div class="statistics-period-kind">
         <button
+          class:active={kind === 'recent'}
+          aria-pressed={kind === 'recent'}
+          onclick={() => selectKind('recent')}>最近</button
+        ><button
           class:active={kind === 'month'}
           aria-pressed={kind === 'month'}
           onclick={() => selectKind('month')}>月</button
@@ -136,7 +145,7 @@
           onclick={() => selectKind('all')}>全期間</button
         >
       </div>
-      {#if kind !== 'all'}
+      {#if navigable}
         <div class="statistics-period-navigation">
           <button aria-label="前の期間" disabled={!canMoveBackward} onclick={() => movePeriod(-1)}
             >‹</button
@@ -165,6 +174,17 @@
           <button aria-label="次の期間" disabled={!canMoveForward} onclick={() => movePeriod(1)}
             >›</button
           >
+        </div>
+      {:else if kind === 'recent'}
+        <div class="statistics-period-selects">
+          <select
+            aria-label="最近の日数"
+            value={selectedRecentDays}
+            onchange={(event) =>
+              (selectedRecentDays = Number((event.currentTarget as HTMLSelectElement).value))}
+          >
+            {#each recentDayOptions as days}<option value={days}>直近{days}日間</option>{/each}
+          </select>
         </div>
       {:else}
         <strong class="statistics-all-period">最初の記録から現在まで</strong>

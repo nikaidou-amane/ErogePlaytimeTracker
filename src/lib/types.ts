@@ -46,11 +46,12 @@ export interface Session {
   running_seconds: number | null;
   pause_excluded_seconds: number;
 }
-export type StatisticsPeriodKind = 'month' | 'year' | 'all';
+export type StatisticsPeriodKind = 'recent' | 'month' | 'year' | 'all';
 export interface StatisticsPeriodInput {
   kind: StatisticsPeriodKind;
   year?: number;
   month?: number;
+  days?: number;
 }
 export interface StatisticsSessionHighlight {
   session_id: number;
@@ -101,6 +102,7 @@ export interface StatisticsReport {
     kind: StatisticsPeriodKind;
     year: number | null;
     month: number | null;
+    days: number | null;
     start_date: string;
     end_date: string;
     generated_at: string;

@@ -236,6 +236,7 @@ mod tests {
                     kind: "all".into(),
                     year: None,
                     month: None,
+                    days: None,
                 })
                 .unwrap();
             assert_eq!(
@@ -272,7 +273,8 @@ mod tests {
             db.statistics(&StatisticsPeriodInput {
                 kind: "all".into(),
                 year: None,
-                month: None
+                month: None,
+                days: None,
             })
             .unwrap()
             .summary
@@ -288,7 +290,8 @@ mod tests {
             db.statistics(&StatisticsPeriodInput {
                 kind: "all".into(),
                 year: None,
-                month: None
+                month: None,
+                days: None,
             })
             .unwrap()
             .summary
@@ -343,6 +346,7 @@ mod tests {
                         kind: kind.into(),
                         year,
                         month,
+                        days: None,
                     })
                     .unwrap();
                 assert_eq!(report.summary.total_playtime_seconds, a_total + b_total);
@@ -432,6 +436,7 @@ mod tests {
             kind: "all".into(),
             year: None,
             month: None,
+            days: None,
         };
         assert_eq!(db.list_sessions(a).unwrap()[0].playtime_seconds, 300);
         assert_eq!(db.list_sessions(b).unwrap()[0].playtime_seconds, 0);

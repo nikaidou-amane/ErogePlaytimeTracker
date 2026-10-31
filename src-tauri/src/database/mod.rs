@@ -822,6 +822,7 @@ impl Database {
                 kind: "all".into(),
                 year: None,
                 month: None,
+                days: None,
             },
             Some(game_id),
         )?;
@@ -1140,7 +1141,7 @@ fn statistics_period(
         .min(today)
         .max(earliest_date);
     let available_years = (earliest_date.year()..=today.year()).rev().collect();
-    let (start_date, last_date, year, month) = match input.kind.as_str() {
+    let (start_date, last_date, year, month, recent_days) = match input.kind.as_str() {
         "month" => {
             let year = input.year.context("年を指定してください")?;
             let month = input.month.context("月を指定してください")?;
@@ -1155,6 +1156,7 @@ fn statistics_period(
                 (next - Duration::days(1)).min(today),
                 Some(year),
                 Some(month),
+                None,
             )
         }
         "year" => {
@@ -1170,9 +1172,19 @@ fn statistics_period(
                 (next - Duration::days(1)).min(today),
                 Some(year),
                 None,
+                None,
             )
         }
-        "all" => (earliest_date, latest_date, None, None),
+        "recent" => {
+            let days = input.days.context("日数を指定してください")?;
+            if !RECENT_RANGE_DAYS.contains(&days) {
+                bail!("統計期間の日数が不正です")
+            }
+            // 今日を最終日として days 日分を遡る。記録が無い日も 0 分として並べる。
+            let start = today - Duration::days(i64::from(days) - 1);
+            (start, today, None, None, Some(days))
+        }
+        "all" => (earliest_date, latest_date, None, None, None),
         _ => bail!("統計期間の種類が不正です"),
     };
     let mut days = Vec::new();
@@ -1188,6 +1200,7 @@ fn statistics_period(
             kind: input.kind.clone(),
             year,
             month,
+            days: recent_days,
             start_date: start_date.to_string(),
             end_date: last_date.to_string(),
             generated_at: snapshot.to_rfc3339(),
@@ -1442,6 +1455,9 @@ fn trim_statistics_to_active_range(mut report: StatisticsReport) -> StatisticsRe
         report.summary.total_playtime_seconds / report.days.len() as i64;
     report
 }
+
+/// 「最近」の集計で選べる日数。UI のドロップダウンと一致させる。
+const RECENT_RANGE_DAYS: [u32; 4] = [7, 14, 30, 90];
 
 const GAME_QUERY: &str = "SELECT g.id,g.title,b.name,g.release_date,g.thumbnail_path,g.created_at,
 0 total_playtime_seconds,
@@ -1770,6 +1786,7 @@ mod tests {
                         kind: kind.into(),
                         year: (kind != "all").then_some(2026),
                         month: (kind == "month").then_some(1),
+                        days: None,
                     })
                     .unwrap();
                 assert_eq!(report.summary.total_playtime_seconds, expected + 2_700);
@@ -2200,6 +2217,7 @@ mod tests {
             kind: "year".into(),
             year: Some(2026),
             month: None,
+            days: None,
         };
 
         let before = d.list_sessions(g).unwrap().remove(0);
@@ -2506,6 +2524,7 @@ mod tests {
                 kind: "month".into(),
                 year: Some(2026),
                 month: Some(1),
+                days: None,
                 start_date: "2026-01-01".into(),
                 end_date: "2026-01-02".into(),
                 generated_at: "2026-01-03T00:00:00Z".into(),
@@ -2613,6 +2632,7 @@ mod tests {
                 kind: "year".into(),
                 year: Some(2026),
                 month: None,
+                days: None,
             })
             .unwrap();
 
@@ -2712,9 +2732,51 @@ mod tests {
                     kind: "year".into(),
                     year: Some(future_year),
                     month: None,
+                    days: None,
                 })
                 .is_err()
         );
+    }
+    #[test]
+    fn statistics_recent_range_covers_the_requested_days_ending_today() {
+        let database = Database::memory().unwrap();
+        let report = database
+            .statistics(&StatisticsPeriodInput {
+                kind: "recent".into(),
+                year: None,
+                month: None,
+                days: Some(7),
+            })
+            .unwrap();
+
+        let today = Utc::now().with_timezone(&Local).date_naive();
+        assert_eq!(report.period.kind, "recent");
+        assert_eq!(report.period.days, Some(7));
+        assert_eq!(report.period.year, None);
+        assert_eq!(report.period.month, None);
+        assert_eq!(report.period.end_date, today.to_string());
+        assert_eq!(
+            report.period.start_date,
+            (today - Duration::days(6)).to_string()
+        );
+        assert_eq!(report.days.len(), 7);
+    }
+    #[test]
+    fn statistics_recent_range_rejects_unsupported_day_counts() {
+        let database = Database::memory().unwrap();
+        for days in [None, Some(0), Some(1), Some(8), Some(365)] {
+            assert!(
+                database
+                    .statistics(&StatisticsPeriodInput {
+                        kind: "recent".into(),
+                        year: None,
+                        month: None,
+                        days,
+                    })
+                    .is_err(),
+                "days={days:?} should be rejected"
+            );
+        }
     }
     #[test]
     fn play_status_defaults_updates_and_filters() {
