@@ -498,7 +498,10 @@
             >
           </div>
           <label class="settings-row settings-switch-row"
-            ><span><strong>一時停止時間を除外</strong><small>プレイ時間に含めない</small></span
+            ><span
+              ><strong>一時停止時間を除外</strong><small
+                >プレイ時間に含めない。過去の履歴・統計にも適用</small
+              ></span
             ><input
               class="settings-switch"
               type="checkbox"
@@ -508,7 +511,8 @@
           >
           <label class="settings-row settings-switch-row"
             ><span
-              ><strong>バックグラウンド時間を除外</strong><small>ゲームが最前面にない時間</small
+              ><strong>バックグラウンド時間を除外</strong><small
+                >ゲームが最前面にない時間。過去の履歴・統計にも適用</small
               ></span
             ><input
               class="settings-switch"
@@ -520,18 +524,19 @@
           <label class="settings-row settings-switch-row"
             ><span
               ><strong>「攻略中」のみ計測</strong><small
-                >それ以外のステータスは一時停止として扱う</small
+                >それ以外のステータスは一時停止として扱う。今後の計測のみに適用</small
               ></span
             ><input
               class="settings-switch"
               type="checkbox"
               role="switch"
               bind:checked={settings.track_only_playing_status}
+              disabled={trackingActive}
             /></label
           >
-          <div class="settings-card-note">
-            <SettingsIcon name="history" /><span>過去の履歴・統計にも適用</span>
-          </div>
+          {#if trackingActive}<p class="settings-card-note">
+              起動中のゲームがあるため、終了すると切り替えられます。
+            </p>{/if}
         </div>
       </section>
       <section
