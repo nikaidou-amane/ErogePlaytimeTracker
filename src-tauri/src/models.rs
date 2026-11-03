@@ -50,12 +50,14 @@ pub struct StatisticsPeriodInput {
     pub kind: String,
     pub year: Option<i32>,
     pub month: Option<u32>,
+    pub days: Option<u32>,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct StatisticsPeriod {
     pub kind: String,
     pub year: Option<i32>,
     pub month: Option<u32>,
+    pub days: Option<u32>,
     pub start_date: String,
     pub end_date: String,
     pub generated_at: String,
