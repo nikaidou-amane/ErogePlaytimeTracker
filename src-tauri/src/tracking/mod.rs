@@ -347,17 +347,7 @@ impl TrackingService {
             }
         }
         if let Some(tray) = self.inner.app.tray_by_id("tracker") {
-            let label = if status.is_paused {
-                "Eroge Playtime Tracker - 一時停止中".to_string()
-            } else if status.games.is_empty() {
-                "Eroge Playtime Tracker - idle".to_string()
-            } else {
-                format!(
-                    "Eroge Playtime Tracker - tracking {} game(s)",
-                    status.games.len()
-                )
-            };
-            let _ = tray.set_tooltip(Some(label));
+            let _ = tray.set_tooltip(Some(tray_label(&status)));
         }
         let _ = self.inner.app.emit("tracking-status", status);
     }
@@ -371,6 +361,34 @@ impl TrackingService {
         drop(pause);
         let s = self.inner.state.lock();
         let games_that_had_windows = self.inner.games_that_had_windows.lock();
+        let running: Vec<(i64, Option<i64>, &'static str)> = s
+            .running()
+            .iter()
+            .map(|(g, x)| {
+                let phase = if x.is_none() {
+                    "starting"
+                } else if s.focused() == Some(*g) {
+                    "foreground"
+                } else if s.background().contains(g) {
+                    "background"
+                } else if games_that_had_windows.contains(g) {
+                    "window_transition"
+                } else {
+                    "starting"
+                };
+                (*g, *x, phase)
+            })
+            .collect();
+        drop(games_that_had_windows);
+        drop(s);
+        // Session duration needs the playtime calculation, so resolve it outside
+        // the tracking-state lock.
+        let session_ids: Vec<i64> = running.iter().filter_map(|(_, id, _)| *id).collect();
+        let session_seconds = self
+            .inner
+            .db
+            .session_playtime_seconds(&session_ids, Utc::now().timestamp())
+            .unwrap_or_default();
         let names: HashMap<i64, String> = self
             .inner
             .db
@@ -382,25 +400,14 @@ impl TrackingService {
         TrackingStatus {
             is_paused,
             pause_started_at,
-            games: s
-                .running()
-                .iter()
-                .map(|(g, x)| TrackingGameStatus {
-                    game_id: *g,
-                    title: names.get(g).cloned().unwrap_or_default(),
-                    session_id: *x,
-                    phase: if x.is_none() {
-                        "starting"
-                    } else if s.focused() == Some(*g) {
-                        "foreground"
-                    } else if s.background().contains(g) {
-                        "background"
-                    } else if games_that_had_windows.contains(g) {
-                        "window_transition"
-                    } else {
-                        "starting"
-                    }
-                    .to_string(),
+            games: running
+                .into_iter()
+                .map(|(g, x, phase)| TrackingGameStatus {
+                    game_id: g,
+                    title: names.get(&g).cloned().unwrap_or_default(),
+                    session_id: x,
+                    session_seconds: x.and_then(|id| session_seconds.get(&id).copied()),
+                    phase: phase.to_string(),
                 })
                 .collect(),
         }
@@ -509,6 +516,42 @@ fn is_in_game_root(path: &str, roots: Option<&Vec<String>>) -> bool {
     roots.is_some_and(|roots| roots.iter().any(|root| path.starts_with(root)))
 }
 
+fn tray_label(status: &TrackingStatus) -> String {
+    if status.is_paused {
+        return "Eroge Playtime Tracker - 一時停止中".to_string();
+    }
+    if status.games.is_empty() {
+        return "Eroge Playtime Tracker - idle".to_string();
+    }
+    // Multiple games can each have a different session length, so only a single
+    // running game reports a duration.
+    if let [game] = status.games.as_slice()
+        && let Some(seconds) = game.session_seconds
+        && !game.title.is_empty()
+    {
+        return format!(
+            "Eroge Playtime Tracker - tracking {} - working session {}",
+            game.title,
+            tray_duration(seconds)
+        );
+    }
+    format!(
+        "Eroge Playtime Tracker - tracking {} game(s)",
+        status.games.len()
+    )
+}
+
+fn tray_duration(seconds: i64) -> String {
+    let total = seconds.max(0);
+    let hours = total / 3600;
+    let minutes = (total % 3600) / 60;
+    if hours > 0 {
+        format!("{hours}h{minutes}min")
+    } else {
+        format!("{minutes}min")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -523,6 +566,73 @@ mod tests {
             Some(&roots)
         ));
         assert!(!is_in_game_root(r"D:\vn\game-old\main.exe", Some(&roots)));
+    }
+
+    #[test]
+    fn tray_label_reports_the_current_session_duration() {
+        let game = |phase: &str, session_seconds: Option<i64>| TrackingGameStatus {
+            game_id: 1,
+            title: "Game".into(),
+            session_id: Some(10),
+            phase: phase.into(),
+            session_seconds,
+        };
+        let status = |is_paused: bool, games: Vec<TrackingGameStatus>| TrackingStatus {
+            is_paused,
+            pause_started_at: None,
+            games,
+        };
+
+        assert_eq!(
+            tray_label(&status(false, vec![])),
+            "Eroge Playtime Tracker - idle"
+        );
+        assert_eq!(
+            tray_label(&status(true, vec![game("foreground", Some(3725))])),
+            "Eroge Playtime Tracker - 一時停止中"
+        );
+        assert_eq!(
+            tray_label(&status(false, vec![game("foreground", Some(45))])),
+            "Eroge Playtime Tracker - tracking Game - working session 0min"
+        );
+        assert_eq!(
+            tray_label(&status(false, vec![game("foreground", Some(3725))])),
+            "Eroge Playtime Tracker - tracking Game - working session 1h2min"
+        );
+        assert_eq!(
+            tray_label(&status(false, vec![game("background", Some(7320))])),
+            "Eroge Playtime Tracker - tracking Game - working session 2h2min"
+        );
+        // Starting games have no session yet, so the count label still applies.
+        assert_eq!(
+            tray_label(&status(false, vec![game("starting", None)])),
+            "Eroge Playtime Tracker - tracking 1 game(s)"
+        );
+    }
+
+    #[test]
+    fn tray_label_omits_the_session_duration_for_multiple_games() {
+        let game = |title: &str, phase: &str, session_seconds: Option<i64>| TrackingGameStatus {
+            game_id: 1,
+            title: title.into(),
+            session_id: Some(10),
+            phase: phase.into(),
+            session_seconds,
+        };
+        // Each game has its own session length, so mixing them into one number
+        // would be misleading; fall back to the game count.
+        let status = TrackingStatus {
+            is_paused: false,
+            pause_started_at: None,
+            games: vec![
+                game("Game A", "background", Some(7200)),
+                game("Game B", "foreground", Some(60)),
+            ],
+        };
+        assert_eq!(
+            tray_label(&status),
+            "Eroge Playtime Tracker - tracking 2 game(s)"
+        );
     }
 
     #[test]

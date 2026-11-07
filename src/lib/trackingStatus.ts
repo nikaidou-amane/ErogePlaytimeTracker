@@ -54,6 +54,30 @@ export function trackingStatusRows<T>(items: T[]): T[][] {
  * The text the header actually shows, one string per rendered line. The tooltip
  * reuses this so it can never drift from the visible labels.
  */
-export function trackingStatusLines(rows: TrackingStatusChip[][]): string[] {
-  return rows.map((row) => row.map((chip) => `● ${chip.label}`).join(' '));
+export function trackingStatusLines(rows: TrackingStatusChip[][], sessionLine?: string): string[] {
+  return [
+    ...rows.map((row) => row.map((chip) => `● ${chip.label}`).join(' ')),
+    ...(sessionLine === undefined ? [] : [sessionLine]),
+  ];
+}
+
+/**
+ * Session duration shown in the header. Only a single running game reports it —
+ * several games each have their own session, so those keep the plain phase chips.
+ */
+export function currentSessionSeconds(status: TrackingStatus): number | null {
+  return status.games.length === 1 ? (status.games[0].session_seconds ?? null) : null;
+}
+
+/**
+ * Session duration in whole minutes, truncated. The header shows the same value
+ * the tray tooltip does, and a minute granularity keeps it steady: a per-second
+ * readout could never stay in step with the detail page's own clock, so it only
+ * looked like it was drifting.
+ */
+export function sessionMinutes(seconds: number) {
+  const total = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  return h ? `${h}時間 ${m}分` : `${m}分`;
 }

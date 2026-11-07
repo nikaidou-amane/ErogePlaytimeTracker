@@ -301,6 +301,8 @@ pub struct TrackingGameStatus {
     pub title: String,
     pub session_id: Option<i64>,
     pub phase: String,
+    /// Playtime of this session so far, or `None` while it has not started.
+    pub session_seconds: Option<i64>,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct TrackingStatus {

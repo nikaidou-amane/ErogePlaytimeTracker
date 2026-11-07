@@ -277,6 +277,31 @@ impl TimeIndex {
     }
 }
 impl Database {
+    /// Playtime of each given session up to `at`, using the same calculation as
+    /// the history views so live totals never disagree with stored ones.
+    pub(crate) fn session_playtime_seconds(
+        &self,
+        sessions: &[i64],
+        at: i64,
+    ) -> Result<HashMap<i64, i64>> {
+        if sessions.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let connection = self.0.lock();
+        let settings = app_settings(&connection)?;
+        let index = self.time_index(&connection)?;
+        Ok(sessions
+            .iter()
+            .filter_map(|id| {
+                index.sessions.get(id).map(|time| {
+                    (
+                        *id,
+                        time.playtime(i64::MIN, i64::MAX, at, &settings, &index.pause),
+                    )
+                })
+            })
+            .collect())
+    }
     pub(super) fn time_index(&self, connection: &Connection) -> Result<Arc<TimeIndex>> {
         let mut cache = self.1.lock();
         let version = connection
@@ -366,6 +391,24 @@ mod tests {
             None,
         )
         .unwrap()
+    }
+    #[test]
+    fn session_playtime_seconds_reports_live_and_batched_values() {
+        let db = Database::memory().unwrap();
+        let game = pause_summary_game(&db);
+        let running = db.start_session(game, "2026-01-01T00:00:00Z").unwrap();
+        db.create_interval(running, "2026-01-01T00:00:10Z", "2026-01-01T00:00:40Z")
+            .unwrap();
+        let now = timestamp_seconds("2026-01-01T00:01:00Z").unwrap();
+        let open = db.session_playtime_seconds(&[running], now).unwrap();
+        // 60s elapsed minus the 30s background interval excluded by default.
+        assert_eq!(open.get(&running), Some(&30));
+        assert!(db.session_playtime_seconds(&[], now).unwrap().is_empty());
+        assert!(
+            db.session_playtime_seconds(&[running + 1000], now)
+                .unwrap()
+                .is_empty()
+        );
     }
     #[test]
     fn session_pause_exclusion_recalculates_and_preserves_raw_background_time() {

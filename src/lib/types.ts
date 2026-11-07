@@ -177,6 +177,7 @@ export interface TrackingStatus {
     game_id: number;
     title: string;
     session_id: number | null;
+    session_seconds: number | null;
     phase: 'starting' | 'foreground' | 'background' | 'window_transition';
   }>;
 }

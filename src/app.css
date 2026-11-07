@@ -947,10 +947,14 @@ header > nav {
   min-width: 0;
   max-width: 100%;
 }
+.tracking-session-duration {
+  font-variant-numeric: tabular-nums;
+}
 .tracking-status.foreground {
   color: #70e09a;
 }
-.tracking-status.background {
+.tracking-status.background,
+.tracking-status.tracking-session-duration {
   color: #f0c75e;
 }
 .tracking-status.starting {
@@ -2027,6 +2031,15 @@ button.primary:disabled:hover {
   border-radius: 999px;
   font-weight: 600;
 }
+/* The session line reuses the background palette, but stays a plain line so it
+   does not look like a clickable pill. Its colour comes from the same rule as
+   the background chip, so the two can never drift apart. */
+:root[data-theme]:not([data-theme='dark']) .tracking-status.tracking-session-duration {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-weight: 400;
+}
 :root[data-theme]:not([data-theme='dark']) .tracking-status.foreground {
   color: #176c35;
   background: #dff5e6;
@@ -2042,8 +2055,11 @@ button.primary:disabled:hover {
   background: #eee6fa;
   border-color: #c8b2e5;
 }
-:root[data-theme]:not([data-theme='dark']) .tracking-status.background {
+:root[data-theme]:not([data-theme='dark']) .tracking-status.background,
+:root[data-theme]:not([data-theme='dark']) .tracking-status.tracking-session-duration {
   color: #765300;
+}
+:root[data-theme]:not([data-theme='dark']) .tracking-status.background {
   background: #fff0bd;
   border-color: #dfc66d;
 }

@@ -1,6 +1,8 @@
 <script lang="ts">
   import SettingsIcon from './SettingsIcon.svelte';
   import {
+    currentSessionSeconds,
+    sessionMinutes,
     trackingStatusChips,
     trackingStatusGroups,
     trackingStatusLines,
@@ -14,9 +16,14 @@
   export let ontoggle: () => void;
   $: groups = trackingStatusGroups(status);
   $: rows = trackingStatusRows(trackingStatusChips(groups));
+  // Whole minutes straight from the backend playtime, truncated. The tray tooltip
+  // shows the same granularity, so the two never disagree.
+  $: sessionSeconds = currentSessionSeconds(status);
+  $: sessionLine =
+    sessionSeconds === null ? undefined : `● このセッション · ${sessionMinutes(sessionSeconds)}`;
   // The tooltip is derived from the rendered lines, so hover text always matches
   // what the header shows and only adds the parts hidden by the tail clipping.
-  $: statusTitle = trackingStatusLines(rows).join('\n') || '● 待機中';
+  $: statusTitle = trackingStatusLines(rows, sessionLine).join('\n') || '● 待機中';
 </script>
 
 <div class="tracking-controls">
@@ -30,6 +37,9 @@
             {/each}
           </div>
         {/each}
+        {#if sessionLine !== undefined}<span class="tracking-status tracking-session-duration"
+            >{sessionLine}</span
+          >{/if}
       </div>
     {/if}
   </div>

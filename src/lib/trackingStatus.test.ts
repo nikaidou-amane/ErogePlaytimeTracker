@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  currentSessionSeconds,
+  sessionMinutes,
   trackingStatusChips,
   trackingStatusGroups,
   trackingStatusLines,
@@ -7,12 +9,17 @@ import {
 } from './trackingStatus';
 import type { TrackingStatus } from './types';
 
-const game = (game_id: number, title: string, phase: TrackingStatus['games'][number]['phase']) => ({
+const game = (
+  game_id: number,
+  title: string,
+  phase: TrackingStatus['games'][number]['phase'],
+  session_seconds: number | null = phase === 'starting' ? null : 90,
+) => ({
   game_id,
   title,
   phase,
   session_id: phase === 'starting' ? null : game_id + 100,
-  session_seconds: phase === 'starting' ? null : 90,
+  session_seconds,
 });
 
 describe('tracking status presentation', () => {
@@ -98,11 +105,63 @@ describe('tracking status presentation', () => {
       ],
     });
     const rows = trackingStatusRows(trackingStatusChips(groups));
-    const lines = trackingStatusLines(rows);
-    // One line per rendered row, each prefixed like the visible text.
-    expect(lines).toEqual(['● プレイ中 · Game B', '● バックグラウンド · Game A ● 起動中 · Game C']);
+    const sessionLine = '● このセッション · 1時間 2分';
+    const lines = trackingStatusLines(rows, sessionLine);
+    // One line per rendered row plus the session line, each prefixed like the
+    // visible text.
+    expect(lines).toEqual([
+      '● プレイ中 · Game B',
+      '● バックグラウンド · Game A ● 起動中 · Game C',
+      '● このセッション · 1時間 2分',
+    ]);
     // Every visible label appears verbatim in the tooltip.
     for (const chip of trackingStatusChips(groups))
       expect(lines.join('\n')).toContain(`● ${chip.label}`);
+    // Without a session line the tooltip stays on the chips only.
+    expect(trackingStatusLines(rows)).toEqual([
+      '● プレイ中 · Game B',
+      '● バックグラウンド · Game A ● 起動中 · Game C',
+    ]);
+  });
+
+  it('formats the session duration in whole minutes, truncated', () => {
+    // Seconds are dropped rather than rounded, so the header never runs ahead.
+    expect(sessionMinutes(0)).toBe('0分');
+    expect(sessionMinutes(59)).toBe('0分');
+    expect(sessionMinutes(60)).toBe('1分');
+    expect(sessionMinutes(119)).toBe('1分');
+    expect(sessionMinutes(3599)).toBe('59分');
+    expect(sessionMinutes(3600)).toBe('1時間 0分');
+    expect(sessionMinutes(3725)).toBe('1時間 2分');
+    // Past the hour the minutes part still truncates.
+    expect(sessionMinutes(7325)).toBe('2時間 2分');
+  });
+
+  it('only reports a session duration when exactly one game is running', () => {
+    expect(
+      currentSessionSeconds({ is_paused: false, pause_started_at: null, games: [] }),
+    ).toBeNull();
+    expect(
+      currentSessionSeconds({
+        is_paused: false,
+        pause_started_at: null,
+        games: [game(1, 'Game A', 'starting')],
+      }),
+    ).toBeNull();
+    expect(
+      currentSessionSeconds({
+        is_paused: false,
+        pause_started_at: null,
+        games: [game(1, 'Game A', 'foreground', 30)],
+      }),
+    ).toBe(30);
+    // Each game has its own session length, so several games show no duration.
+    expect(
+      currentSessionSeconds({
+        is_paused: false,
+        pause_started_at: null,
+        games: [game(1, 'Game A', 'foreground', 30), game(2, 'Game B', 'background', 45)],
+      }),
+    ).toBeNull();
   });
 });
