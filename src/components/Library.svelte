@@ -27,7 +27,6 @@
   let loadedKey = '';
   let brandMenuOpen = false;
   let statusMenuOpen = false;
-  let toolbarElement: HTMLElement;
   $: viewMode = view.viewMode;
   $: totalPlaytimeSeconds = games.reduce((total, game) => total + game.total_playtime_seconds, 0);
   $: maximumPlaytimeSeconds = games.reduce(
@@ -91,10 +90,12 @@
       .then((value) => (brands = value))
       .catch((e) => (error = userErrorMessage(e, 'ブランド一覧を読み込めませんでした。')));
     const timer = setInterval(load, 1000);
-    // メニューの外側を押したら閉じる。
+    // メニューの外側を押したら閉じる。toolbar 全体ではなく、ブランド・
+    // プレイ状況の各コントロールの外かどうかで判定する。
+    // （toolbar 内の並び順・検索を押したときにも閉じるようにするため）
     function handleDocumentClick(event: MouseEvent) {
-      if (!(event.target instanceof Node)) return;
-      if (!toolbarElement?.contains(event.target)) {
+      if (!(event.target instanceof Element)) return;
+      if (!event.target.closest('.filter-control')) {
         brandMenuOpen = false;
         statusMenuOpen = false;
       }
@@ -126,7 +127,7 @@
   }
 </script>
 
-<section class="toolbar" bind:this={toolbarElement}>
+<section class="toolbar">
   <label class="search-control"
     ><span>タイトル検索</span><input
       placeholder="ゲームタイトルを入力"

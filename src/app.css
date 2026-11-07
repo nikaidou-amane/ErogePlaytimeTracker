@@ -982,6 +982,17 @@ header > nav {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* toolbar 内の input/select/button は padding と box-sizing が異なり、
+   高さが 36〜41px で揃わない。同じ高さに固定して見た目を揃える。 */
+.toolbar input,
+.toolbar select,
+.toolbar > button,
+.toolbar .filter-trigger {
+  box-sizing: border-box;
+  height: 2.6em;
+  padding-top: 0;
+  padding-bottom: 0;
+}
 .filter-menu {
   position: absolute;
   z-index: 5;
