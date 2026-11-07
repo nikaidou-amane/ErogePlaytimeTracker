@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { defaultLibraryView, normalizeLibraryView, toggleValue } from './libraryFilters';
+import {
+  defaultLibraryView,
+  filterSummary,
+  normalizeLibraryView,
+  toggleValue,
+} from './libraryFilters';
 
 describe('library view preferences', () => {
   it('uses the defaults when nothing has been saved', () => {
@@ -61,5 +66,12 @@ describe('library view preferences', () => {
     expect(toggleValue<string>([], 'A')).toEqual(['A']);
     expect(toggleValue(['A'], 'B')).toEqual(['A', 'B']);
     expect(toggleValue(['A', 'B'], 'A')).toEqual(['B']);
+  });
+
+  it('shows the single selected label instead of a count', () => {
+    expect(filterSummary([], 'すべてのブランド')).toBe('すべてのブランド');
+    expect(filterSummary(['ブランドA'], 'すべてのブランド')).toBe('ブランドA');
+    expect(filterSummary(['ブランドA', 'ブランドB'], 'すべてのブランド')).toBe('2件選択');
+    expect(filterSummary(['攻略中', '未プレイ', '完了'], 'すべての状況')).toBe('3件選択');
   });
 });

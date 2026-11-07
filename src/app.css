@@ -1000,7 +1000,10 @@ header > nav {
 .filter-option,
 .filter-all {
   display: flex;
+  /* チェックボックスを先頭に置き、ラベルと同じ行に並べる。 */
+  flex-direction: row;
   align-items: center;
+  justify-content: flex-start;
   gap: 0.45rem;
   width: 100%;
   padding: 0.35rem 0.4rem;
@@ -1016,8 +1019,21 @@ header > nav {
   background: #ffffff10;
 }
 .filter-option input {
-  width: auto;
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
   min-width: 0;
+  margin: 0;
+  order: -1;
+}
+.filter-option > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: inherit;
+}
+/* 選択肢の文字が「すべてxx」と左端で揃うよう、同じ幅の空きを確保する。 */
+.filter-all {
+  padding-left: calc(0.4rem + 13px + 0.45rem);
 }
 .toolbar label > span,
 .view-control > span {

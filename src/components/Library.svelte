@@ -2,7 +2,12 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api';
   import { userErrorMessage } from '../lib/errors';
-  import { defaultLibraryView, normalizeLibraryView, toggleValue } from '../lib/libraryFilters';
+  import {
+    defaultLibraryView,
+    filterSummary,
+    normalizeLibraryView,
+    toggleValue,
+  } from '../lib/libraryFilters';
   import { duration, lastPlayed, imageSrc, playStatusLabel, playStatusOptions } from '../lib/time';
   import type {
     GameSummary,
@@ -22,6 +27,7 @@
   let loadedKey = '';
   let brandMenuOpen = false;
   let statusMenuOpen = false;
+  let toolbarElement: HTMLElement;
   $: viewMode = view.viewMode;
   $: totalPlaytimeSeconds = games.reduce((total, game) => total + game.total_playtime_seconds, 0);
   $: maximumPlaytimeSeconds = games.reduce(
@@ -85,7 +91,19 @@
       .then((value) => (brands = value))
       .catch((e) => (error = userErrorMessage(e, 'ブランド一覧を読み込めませんでした。')));
     const timer = setInterval(load, 1000);
-    return () => clearInterval(timer);
+    // メニューの外側を押したら閉じる。
+    function handleDocumentClick(event: MouseEvent) {
+      if (!(event.target instanceof Node)) return;
+      if (!toolbarElement?.contains(event.target)) {
+        brandMenuOpen = false;
+        statusMenuOpen = false;
+      }
+    }
+    document.addEventListener('click', handleDocumentClick);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('click', handleDocumentClick);
+    };
   });
   function setViewMode(mode: LibraryViewMode) {
     view = { ...view, viewMode: mode };
@@ -108,7 +126,7 @@
   }
 </script>
 
-<section class="toolbar">
+<section class="toolbar" bind:this={toolbarElement}>
   <label class="search-control"
     ><span>タイトル検索</span><input
       placeholder="ゲームタイトルを入力"
@@ -124,7 +142,7 @@
       onclick={() => {
         brandMenuOpen = !brandMenuOpen;
         statusMenuOpen = false;
-      }}>{view.brands.length ? `${view.brands.length}件選択` : 'すべてのブランド'}</button
+      }}>{filterSummary(view.brands, 'すべてのブランド')}</button
     >
     {#if brandMenuOpen}
       <div class="filter-menu">
@@ -157,7 +175,11 @@
       onclick={() => {
         statusMenuOpen = !statusMenuOpen;
         brandMenuOpen = false;
-      }}>{view.playStatuses.length ? `${view.playStatuses.length}件選択` : 'すべての状況'}</button
+      }}
+      >{filterSummary(
+        view.playStatuses.map((status) => playStatusLabel(status)),
+        'すべての状況',
+      )}</button
     >
     {#if statusMenuOpen}
       <div class="filter-menu">

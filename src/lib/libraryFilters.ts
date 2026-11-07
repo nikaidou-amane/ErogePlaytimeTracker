@@ -48,3 +48,10 @@ export function normalizeLibraryView(value: unknown): LibraryView {
 export function toggleValue<T>(values: T[], value: T): T[] {
   return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
 }
+
+/** 選択が1件ならその名前、複数なら件数、未選択なら「すべて」を出す。 */
+export function filterSummary(labels: string[], allLabel: string) {
+  if (!labels.length) return allLabel;
+  if (labels.length === 1) return labels[0];
+  return `${labels.length}件選択`;
+}
