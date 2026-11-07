@@ -6,6 +6,7 @@
   import { imageSrc } from '../lib/time';
   import type { StatisticsPeriodInput, StatisticsPeriodKind, StatisticsReport } from '../lib/types';
   import PlaytimeTrend from './PlaytimeTrend.svelte';
+  import { loadRememberedPeriod, saveRememberedPeriod } from '../lib/statisticsPeriod';
 
   export let openGame: (id: number) => void;
   export let trackingActive = false;
@@ -48,6 +49,8 @@
     report = null;
     load(request);
   }
+  // 選んだ年月を覚えておき、画面を移動して戻っても同じ期間を開く。
+  $: if (viewLoaded) saveRememberedPeriod({ year: selectedYear, month: selectedMonth });
   $: minimumYear = Math.min(...availableYears);
   $: canMoveBackward =
     kind === 'month'
@@ -129,8 +132,15 @@
       .then((saved) => {
         kind = saved.kind;
         selectedRecentDays = saved.recentDays;
-        selectedYear = currentYear;
-        selectedMonth = currentMonth;
+        // 同じ起動中に一度でも年月を選んでいれば、それを使い続ける。
+        // 未来の年月（時計の変更など）は選べないので、その場合は現在へ戻す。
+        const remembered = loadRememberedPeriod();
+        const rememberedIsCurrent = (period: { year: number; month: number }) =>
+          period.year < currentYear ||
+          (period.year === currentYear && period.month <= currentMonth);
+        const usable = remembered && rememberedIsCurrent(remembered) ? remembered : null;
+        selectedYear = usable?.year ?? currentYear;
+        selectedMonth = usable?.month ?? currentMonth;
         savedViewJson = JSON.stringify({ kind, recentDays: selectedRecentDays });
       })
       .catch(() => undefined)
