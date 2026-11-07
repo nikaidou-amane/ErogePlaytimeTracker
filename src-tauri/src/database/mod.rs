@@ -953,6 +953,20 @@ impl Database {
     pub fn settings(&self) -> Result<AppSettings> {
         app_settings(&self.0.lock())
     }
+    /// 壊れた値が入っていても画面が開けるよう、既定値へ寄せる。
+    pub fn statistics_view(&self) -> Result<StatisticsView> {
+        let raw = self.get_setting("statistics_view")?;
+        Ok(raw
+            .and_then(|value| serde_json::from_str::<StatisticsView>(&value).ok())
+            .unwrap_or_default()
+            .normalized())
+    }
+    pub fn set_statistics_view(&self, view: &StatisticsView) -> Result<()> {
+        self.set_setting(
+            "statistics_view",
+            &serde_json::to_string(&view.clone().normalized())?,
+        )
+    }
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
         Ok(self
             .0
@@ -2721,6 +2735,23 @@ mod tests {
         assert_eq!(included.summary.active_day_count, 3);
         assert_eq!(included.games.len(), 1);
         assert_eq!(included.games[0].game_id, game_id);
+    }
+    #[test]
+    fn statistics_view_round_trips_and_normalizes_unknown_values() {
+        let d = Database::memory().unwrap();
+        assert_eq!(d.statistics_view().unwrap(), StatisticsView::default());
+        let saved = StatisticsView {
+            kind: "month".into(),
+            recent_days: 30,
+        };
+        d.set_statistics_view(&saved).unwrap();
+        assert_eq!(d.statistics_view().unwrap(), saved);
+        // 未対応の値は既定へ寄せる。
+        d.set_setting("statistics_view", "{\"kind\":\"week\",\"recentDays\":5}")
+            .unwrap();
+        assert_eq!(d.statistics_view().unwrap(), StatisticsView::default());
+        d.set_setting("statistics_view", "broken").unwrap();
+        assert_eq!(d.statistics_view().unwrap(), StatisticsView::default());
     }
     #[test]
     fn statistics_reject_future_periods() {

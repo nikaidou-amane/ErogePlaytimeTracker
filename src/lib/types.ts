@@ -47,6 +47,10 @@ export interface Session {
   pause_excluded_seconds: number;
 }
 export type StatisticsPeriodKind = 'recent' | 'month' | 'year' | 'all';
+export interface StatisticsView {
+  kind: StatisticsPeriodKind;
+  recentDays: number;
+}
 export interface StatisticsPeriodInput {
   kind: StatisticsPeriodKind;
   year?: number;

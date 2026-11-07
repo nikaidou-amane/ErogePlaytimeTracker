@@ -19,6 +19,7 @@ import type {
   PlayStatus,
   SortKey,
   StatisticsPeriodInput,
+  StatisticsView,
   StatisticsReport,
   TrackingStatus,
   TrackingPauseInterval,
@@ -84,6 +85,8 @@ export const api = {
   sessions: (gameId: number) => command<Session[]>('list_sessions', { gameId }),
   statistics: (period: StatisticsPeriodInput) =>
     command<StatisticsReport>('get_statistics', { period }),
+  statisticsView: () => command<StatisticsView>('get_statistics_view'),
+  setStatisticsView: (view: StatisticsView) => command<void>('set_statistics_view', { view }),
   gameStatistics: (gameId: number) => command<StatisticsReport>('get_game_statistics', { gameId }),
   intervals: (sessionId: number) =>
     command<BackgroundInterval[]>('list_background_intervals', { sessionId }),

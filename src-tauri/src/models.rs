@@ -160,6 +160,35 @@ pub struct UpdateGameInput {
     pub release_date: Option<String>,
     pub source_url: Option<String>,
 }
+/// 統計画面の集計口径。画面を移動しても変わらず、再起動後も復元する。
+/// 月・年のときは保存した年月ではなく現在の年月から始める。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct StatisticsView {
+    pub kind: String,
+    pub recent_days: u32,
+}
+impl Default for StatisticsView {
+    fn default() -> Self {
+        Self {
+            kind: "recent".into(),
+            recent_days: 7,
+        }
+    }
+}
+impl StatisticsView {
+    pub fn normalized(mut self) -> Self {
+        const KINDS: [&str; 4] = ["recent", "month", "year", "all"];
+        const DAYS: [u32; 4] = [7, 14, 30, 90];
+        if !KINDS.contains(&self.kind.as_str()) {
+            self.kind = "recent".into();
+        }
+        if !DAYS.contains(&self.recent_days) {
+            self.recent_days = 7;
+        }
+        self
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSettings {
