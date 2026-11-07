@@ -1,51 +1,36 @@
 <script lang="ts">
   import SettingsIcon from './SettingsIcon.svelte';
-  import { trackingStatusGroups, trackingStatusText } from '../lib/trackingStatus';
+  import {
+    trackingStatusChips,
+    trackingStatusGroups,
+    trackingStatusLines,
+    trackingStatusRows,
+  } from '../lib/trackingStatus';
   import type { TrackingStatus } from '../lib/types';
 
   export let status: TrackingStatus;
   export let disabled = false;
   export let busy = false;
   export let ontoggle: () => void;
-  const phaseLabels = {
-    foreground: 'プレイ中',
-    background: 'バックグラウンド',
-    starting: '起動中',
-    window_transition: '画面切替・終了中',
-  };
   $: groups = trackingStatusGroups(status);
-  $: summary = groups
-    .map((group) =>
-      group.games.map((game) => `${phaseLabels[group.phase]}：${game.title}`).join('\n'),
-    )
-    .join('\n');
+  $: rows = trackingStatusRows(trackingStatusChips(groups));
+  // The tooltip is derived from the rendered lines, so hover text always matches
+  // what the header shows and only adds the parts hidden by the tail clipping.
+  $: statusTitle = trackingStatusLines(rows).join('\n') || '● 待機中';
 </script>
 
 <div class="tracking-controls">
-  <div
-    class="tracking-statuses"
-    class:multiple={groups.length > 1}
-    role="status"
-    aria-label="ゲームの起動状態"
-  >
+  <div class="tracking-statuses" role="status" aria-label="ゲームの起動状態" title={statusTitle}>
     {#if groups.length === 0}<span class="tracking-status idle">● 待機中</span>{:else}
-      <div class="tracking-status-groups">
-        {#each groups as group}
-          <span
-            class="tracking-status {group.phase}"
-            title={group.games.length === 1
-              ? trackingStatusText(group)
-              : `${trackingStatusText(group)}\n${group.games.map((game) => game.title).join('\n')}`}
-            >● {phaseLabels[group.phase]} · {group.games.length === 1
-              ? group.games[0].title
-              : `${group.games.length}本`}</span
-          >
+      <div class="tracking-status-stack">
+        {#each rows as row}
+          <div class="tracking-status-row">
+            {#each row as chip}
+              <span class="tracking-status {chip.phase}">● {chip.label}</span>
+            {/each}
+          </div>
         {/each}
       </div>
-      {#if groups.length > 1}<span
-          class="tracking-status tracking-compact-summary {groups[0].phase}"
-          title={summary}>● {status.games.length}本起動中</span
-        >{/if}
     {/if}
   </div>
   <button

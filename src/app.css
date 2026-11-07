@@ -930,14 +930,22 @@ header > nav {
   overflow: hidden;
   gap: 0.4rem;
 }
-.tracking-status-groups {
+.tracking-status-stack {
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  min-width: 0;
+  max-width: 100%;
+  gap: 2px;
+}
+.tracking-status-row {
+  display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 12px;
   min-width: 0;
-}
-.tracking-compact-summary {
-  display: none;
+  max-width: 100%;
 }
 .tracking-status.foreground {
   color: #70e09a;
@@ -4612,12 +4620,6 @@ button.primary:disabled:hover {
   }
   header .tracking-statuses {
     font-size: 12px;
-  }
-  .tracking-statuses.multiple .tracking-status-groups {
-    display: none;
-  }
-  .tracking-statuses.multiple .tracking-compact-summary {
-    display: block;
   }
 }
 
