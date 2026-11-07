@@ -135,13 +135,16 @@ pub fn run() {
                 hotkeys::bindings(&settings),
             );
             let show = MenuItemBuilder::with_id("show", "メインウィンドウを開く").build(app)?;
+            let pause = MenuItemBuilder::with_id("pause", "計測を一時停止")
+                .build(app)?;
             let status = MenuItemBuilder::with_id("status", "追跡状態: 待機中")
                 .enabled(false)
                 .build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "終了").build(app)?;
             let menu = MenuBuilder::new(app)
-                .items(&[&show, &status, &quit])
+                .items(&[&show, &pause, &status, &quit])
                 .build()?;
+            tracker.set_tray_pause_item(pause.clone());
             TrayIconBuilder::with_id("tracker")
                 .icon(tauri::include_image!("icons/32x32.png"))
                 .menu(&menu)
@@ -159,6 +162,13 @@ pub fn run() {
                             s.tracker.shutdown();
                         }
                         app.exit(0)
+                    }
+                    "pause" => {
+                        if let Some(s) = app.try_state::<AppState>()
+                            && let Err(error) = s.tracker.toggle_paused()
+                        {
+                            log::warn!("could not toggle tracking from the tray: {error:#}");
+                        }
                     }
                     _ => {}
                 })

@@ -39,6 +39,8 @@ struct Inner {
     transition: Mutex<()>,
     shown_pause: Mutex<Option<bool>>,
     pause_cache: Mutex<Option<crate::models::TrackingPauseInterval>>,
+    // トレイメニューの「計測を一時停止／再開」項目。現在の状態に応じて文言を入れ替える。
+    tray_pause_item: Mutex<Option<tauri::menu::MenuItem<tauri::Wry>>>,
     stop: AtomicBool,
     app: AppHandle,
 }
@@ -58,6 +60,7 @@ impl TrackingService {
                 transition: Mutex::new(()),
                 shown_pause: Mutex::new(None),
                 pause_cache: Mutex::new(None),
+                tray_pause_item: Mutex::new(None),
                 stop: AtomicBool::new(false),
                 app,
             }),
@@ -345,6 +348,15 @@ impl TrackingService {
                     log::warn!("could not schedule pause icons: {error}");
                 }
             }
+            // 状態が変わったときだけメニュー文言を差し替える。
+            if let Some(item) = self.inner.tray_pause_item.lock().as_ref() {
+                let text = if status.is_paused {
+                    "計測を再開"
+                } else {
+                    "計測を一時停止"
+                };
+                let _ = item.set_text(text);
+            }
         }
         if let Some(tray) = self.inner.app.tray_by_id("tracker") {
             let label = if status.is_paused {
@@ -407,6 +419,11 @@ impl TrackingService {
     }
     pub fn pause_icons_rendered(&self, paused: Option<bool>) {
         *self.inner.shown_pause.lock() = paused;
+    }
+    /// トレイメニューの項目をtrackerに預け、状態変化時に文言を更新できるようにする。
+    pub fn set_tray_pause_item(&self, item: tauri::menu::MenuItem<tauri::Wry>) {
+        *self.inner.tray_pause_item.lock() = Some(item);
+        self.emit();
     }
     pub fn refresh_pause_icons(&self) {
         *self.inner.shown_pause.lock() = None;
