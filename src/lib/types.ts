@@ -7,6 +7,14 @@ export type SortKey =
   | 'last_played'
   | 'session_count';
 export type PlayStatus = 'unplayed' | 'playing' | 'completed' | 'retired';
+export type LibraryViewMode = 'grid' | 'list' | 'table';
+export interface LibraryView {
+  brands: string[];
+  playStatuses: PlayStatus[];
+  sort: SortKey;
+  descending: boolean;
+  viewMode: LibraryViewMode;
+}
 export interface GameSummary {
   id: number;
   title: string;

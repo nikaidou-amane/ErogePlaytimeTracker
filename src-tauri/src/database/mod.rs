@@ -336,8 +336,8 @@ impl Database {
     pub fn list_games(
         &self,
         search: &str,
-        brand: Option<&str>,
-        play_status: Option<&str>,
+        brands: &[String],
+        play_statuses: &[String],
         sort: &str,
         descending: bool,
     ) -> Result<Vec<GameSummary>> {
@@ -350,19 +350,39 @@ impl Database {
             "session_count" => "session_count",
             _ => "last_played",
         };
+        let like = format!("%{}%", search);
+        // 選択が空なら「すべて」。複数選択は IN で受ける。
+        let brand_filter = if brands.is_empty() {
+            "1".to_string()
+        } else {
+            format!(
+                "g.brand_id IN (SELECT id FROM brands WHERE name IN ({}))",
+                placeholders(brands.len())
+            )
+        };
+        let status_filter = if play_statuses.is_empty() {
+            "1".to_string()
+        } else {
+            format!("g.play_status IN ({})", placeholders(play_statuses.len()))
+        };
         let sql = format!(
-            "{} ORDER BY {} {} NULLS LAST,g.title COLLATE NOCASE",
-            GAME_QUERY,
+            "{} AND {} AND {} ORDER BY {} {} NULLS LAST,g.title COLLATE NOCASE",
+            GAME_QUERY_BASE,
+            brand_filter,
+            status_filter,
             order,
             if descending { "DESC" } else { "ASC" }
         );
-        let like = format!("%{}%", search);
         let c = self.0.lock();
         let mut q = c.prepare(&sql)?;
-        let rows = q.query_map(
-            params![like, brand, brand, play_status, play_status],
-            game_row,
-        )?;
+        let mut params_vec: Vec<&dyn rusqlite::ToSql> = vec![&like];
+        for brand in brands {
+            params_vec.push(brand);
+        }
+        for status in play_statuses {
+            params_vec.push(status);
+        }
+        let rows = q.query_map(params_vec.as_slice(), game_row)?;
         let mut games = rows.collect::<rusqlite::Result<Vec<_>>>()?;
         let index = self.time_index(&c)?;
         let settings = app_settings(&c)?;
@@ -398,15 +418,8 @@ impl Database {
         let c = self.0.lock();
         let mut summary = c
             .query_row(
-                &format!("{} AND g.id=?", GAME_QUERY),
-                params![
-                    "%",
-                    Option::<String>::None,
-                    Option::<String>::None,
-                    Option::<String>::None,
-                    Option::<String>::None,
-                    id
-                ],
+                &format!("{} AND g.id=?", GAME_QUERY_BASE),
+                params!["%", id],
                 game_row,
             )
             .optional()?
@@ -970,6 +983,20 @@ impl Database {
         }
         Ok(())
     }
+    /// 壊れた値や未知の値が入っていても画面が開けるよう、既定値へ寄せる。
+    pub fn library_view(&self) -> Result<LibraryView> {
+        let raw = self.get_setting("library_view")?;
+        Ok(raw
+            .and_then(|value| serde_json::from_str::<LibraryView>(&value).ok())
+            .unwrap_or_default()
+            .normalized())
+    }
+    pub fn set_library_view(&self, view: &LibraryView) -> Result<()> {
+        self.set_setting(
+            "library_view",
+            &serde_json::to_string(&view.clone().normalized())?,
+        )
+    }
     pub fn add_screenshot(
         &self,
         game_id: i64,
@@ -1459,13 +1486,20 @@ fn trim_statistics_to_active_range(mut report: StatisticsReport) -> StatisticsRe
 /// 「最近」の集計で選べる日数。UI のドロップダウンと一致させる。
 const RECENT_RANGE_DAYS: [u32; 4] = [7, 14, 30, 90];
 
-const GAME_QUERY: &str = "SELECT g.id,g.title,b.name,g.release_date,g.thumbnail_path,g.created_at,
+const GAME_QUERY_BASE: &str = "SELECT g.id,g.title,b.name,g.release_date,g.thumbnail_path,g.created_at,
 0 total_playtime_seconds,
 COALESCE((SELECT SUM(MAX(0,CAST(strftime('%s',COALESCE(s.exited_at,'now')) AS INTEGER)-CAST(strftime('%s',s.launched_at) AS INTEGER))) FROM play_sessions s WHERE s.game_id=g.id),0) total_running_seconds,
 (SELECT MAX(COALESCE(f.ended_at,f.started_at)) FROM focus_intervals f JOIN play_sessions fs ON fs.id=f.play_session_id WHERE fs.game_id=g.id) last_played,
 (SELECT COUNT(*) FROM play_sessions s WHERE s.game_id=g.id) session_count,
 g.play_status
-FROM games g LEFT JOIN brands b ON b.id=g.brand_id WHERE g.title LIKE ? AND (? IS NULL OR b.name=?) AND (? IS NULL OR g.play_status=?)";
+FROM games g LEFT JOIN brands b ON b.id=g.brand_id WHERE g.title LIKE ?";
+
+/// `IN (...)` 用の placeholder 列を組み立てる。
+fn placeholders(count: usize) -> String {
+    std::iter::repeat_n("?", count)
+        .collect::<Vec<_>>()
+        .join(",")
+}
 fn game_row(r: &rusqlite::Row) -> rusqlite::Result<GameSummary> {
     Ok(GameSummary {
         id: r.get(0)?,
@@ -1700,9 +1734,7 @@ mod tests {
         let g = game(&d);
         d.manual_session(g, "2026-01-01T00:00:00Z", "2026-01-01T01:00:00Z")
             .unwrap();
-        let x = d
-            .list_games("", None, None, "total_playtime", true)
-            .unwrap();
+        let x = d.list_games("", &[], &[], "total_playtime", true).unwrap();
         assert_eq!(x[0].total_playtime_seconds, 3600);
         assert_eq!(x[0].session_count, 1);
     }
@@ -1754,12 +1786,16 @@ mod tests {
             assert_eq!(sessions[0].playtime_seconds, expected);
             assert_eq!(sessions[0].background_seconds, 1_800);
             assert_eq!(sessions[0].running_seconds, Some(3_600));
-            let games = d
-                .list_games("", None, None, "total_playtime", true)
-                .unwrap();
+            let games = d.list_games("", &[], &[], "total_playtime", true).unwrap();
             assert_eq!(games[0].id, if exclude { other } else { g });
             let filtered = d
-                .list_games("A", Some("B"), Some("unplayed"), "total_playtime", false)
+                .list_games(
+                    "A",
+                    &["B".to_string()],
+                    &["unplayed".to_string()],
+                    "total_playtime",
+                    false,
+                )
                 .unwrap();
             assert_eq!(filtered.len(), 1);
             assert_eq!(filtered[0].total_playtime_seconds, expected);
@@ -1982,10 +2018,7 @@ mod tests {
         };
         d.create_game(&input, None).unwrap();
         assert!(d.create_game(&input, None).is_err());
-        assert_eq!(
-            d.list_games("", None, None, "title", false).unwrap().len(),
-            1
-        );
+        assert_eq!(d.list_games("", &[], &[], "title", false).unwrap().len(), 1);
         let other = game(&d);
         let edit = UpdateGameInput {
             title: "Should roll back".into(),
@@ -2482,12 +2515,124 @@ mod tests {
         .unwrap();
         assert_eq!(d.list_brands().unwrap(), vec!["Another Brand", "B"]);
         assert_eq!(
-            d.list_games("", Some("B"), None, "title", false)
+            d.list_games("", &["B".to_string()], &[], "title", false)
                 .unwrap()
                 .len(),
             1
         );
         assert_eq!(d.list_brands().unwrap().len(), 2);
+    }
+    #[test]
+    fn list_games_accepts_multiple_brands_and_statuses() {
+        let d = Database::memory().unwrap();
+        let first = game(&d);
+        d.update_play_status(first, "playing").unwrap();
+        let second = d
+            .create_game(
+                &CreateGameInput {
+                    title: "B".into(),
+                    brand: Some("Another Brand".into()),
+                    release_date: None,
+                    thumbnail_path: None,
+                    source: None,
+                    executable_paths: vec![],
+                    launch_command: None,
+                },
+                None,
+            )
+            .unwrap();
+        d.update_play_status(second, "completed").unwrap();
+        let third = d
+            .create_game(
+                &CreateGameInput {
+                    title: "C".into(),
+                    brand: Some("Third Brand".into()),
+                    release_date: None,
+                    thumbnail_path: None,
+                    source: None,
+                    executable_paths: vec![],
+                    launch_command: None,
+                },
+                None,
+            )
+            .unwrap();
+        d.update_play_status(third, "retired").unwrap();
+
+        // 空の選択は「すべて」。
+        assert_eq!(d.list_games("", &[], &[], "title", false).unwrap().len(), 3);
+
+        let by_brand = d
+            .list_games(
+                "",
+                &["B".to_string(), "Third Brand".to_string()],
+                &[],
+                "title",
+                false,
+            )
+            .unwrap();
+        assert_eq!(by_brand.len(), 2);
+        assert!(
+            by_brand
+                .iter()
+                .all(|game| game.title != "C" || game.brand.is_some())
+        );
+
+        let by_status = d
+            .list_games(
+                "",
+                &[],
+                &["playing".to_string(), "retired".to_string()],
+                "title",
+                false,
+            )
+            .unwrap();
+        assert_eq!(by_status.len(), 2);
+        assert!(
+            by_status
+                .iter()
+                .all(|game| game.play_status == "playing" || game.play_status == "retired")
+        );
+
+        // ブランドと状況の両方を指定した場合は AND。
+        let combined = d
+            .list_games(
+                "",
+                &["Another Brand".to_string()],
+                &["completed".to_string()],
+                "title",
+                false,
+            )
+            .unwrap();
+        assert_eq!(combined.len(), 1);
+        assert_eq!(combined[0].title, "B");
+    }
+    #[test]
+    fn library_view_round_trips_and_normalizes_unknown_values() {
+        let d = Database::memory().unwrap();
+        assert_eq!(d.library_view().unwrap(), LibraryView::default());
+
+        let view = LibraryView {
+            brands: vec!["A".into(), "B".into()],
+            play_statuses: vec!["playing".into(), "completed".into()],
+            sort: "total_playtime".into(),
+            descending: false,
+            view_mode: "table".into(),
+        };
+        d.set_library_view(&view).unwrap();
+        assert_eq!(d.library_view().unwrap(), view);
+
+        // 壊れた保存値でも既定値に寄せて読める。
+        d.set_setting(
+            "library_view",
+            "{\"sort\":\"unknown\",\"viewMode\":\"carousel\"}",
+        )
+        .unwrap();
+        let recovered = d.library_view().unwrap();
+        assert_eq!(recovered.sort, "last_played");
+        assert_eq!(recovered.view_mode, "grid");
+
+        d.set_setting("library_view", "not json").unwrap();
+        assert_eq!(d.library_view().unwrap(), LibraryView::default());
     }
     #[test]
     fn brand_list_excludes_brands_without_games() {
@@ -2799,7 +2944,7 @@ mod tests {
         assert_eq!(d.get_game(first).unwrap().summary.play_status, "unplayed");
         d.update_play_status(second, "completed").unwrap();
         let completed = d
-            .list_games("", None, Some("completed"), "title", false)
+            .list_games("", &[], &["completed".to_string()], "title", false)
             .unwrap();
         assert_eq!(completed.len(), 1);
         assert_eq!(completed[0].id, second);

@@ -475,9 +475,7 @@ mod tests {
                 tx.commit().unwrap();
             }
             let cold = std::time::Instant::now();
-            let games = db
-                .list_games("", None, None, "total_playtime", true)
-                .unwrap();
+            let games = db.list_games("", &[], &[], "total_playtime", true).unwrap();
             let cold = cold.elapsed();
             assert_eq!(
                 games.iter().map(|g| g.total_playtime_seconds).sum::<i64>(),
@@ -485,10 +483,7 @@ mod tests {
             );
             let warm = std::time::Instant::now();
             for _ in 0..10 {
-                std::hint::black_box(
-                    db.list_games("", None, None, "total_playtime", true)
-                        .unwrap(),
-                );
+                std::hint::black_box(db.list_games("", &[], &[], "total_playtime", true).unwrap());
             }
             println!(
                 "sessions={count}, background={}, pauses={count}: cold={cold:?}, warm_average={:?}",

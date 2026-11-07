@@ -243,9 +243,7 @@ mod tests {
                 report.summary.total_playtime_seconds,
                 expected + if paused { 600 } else { 1500 } + 2400
             );
-            let sorted = db
-                .list_games("", None, None, "total_playtime", true)
-                .unwrap();
+            let sorted = db.list_games("", &[], &[], "total_playtime", true).unwrap();
             assert_eq!(sorted[0].id, if background && paused { c } else { a });
         }
         db.set_setting(

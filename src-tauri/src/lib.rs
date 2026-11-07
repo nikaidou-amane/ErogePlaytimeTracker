@@ -213,6 +213,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_games,
+            commands::get_library_view,
+            commands::set_library_view,
             commands::list_brands,
             commands::get_game,
             commands::create_game,

@@ -1,83 +1,65 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadLibraryFilters, saveLibraryFilters, type LibraryFilters } from './libraryFilters';
+import { describe, expect, it } from 'vitest';
+import { defaultLibraryView, normalizeLibraryView, toggleValue } from './libraryFilters';
 
-describe('library filter preferences', () => {
-  let values: Map<string, string>;
-  const defaults: LibraryFilters = {
-    search: '',
-    brand: '',
-    playStatus: '',
-    sort: 'last_played',
-    descending: true,
-  };
+describe('library view preferences', () => {
+  it('uses the defaults when nothing has been saved', () => {
+    expect(normalizeLibraryView(null)).toEqual(defaultLibraryView);
+    expect(normalizeLibraryView(undefined)).toEqual(defaultLibraryView);
+  });
 
-  beforeEach(() => {
-    values = new Map();
-    vi.stubGlobal('localStorage', {
-      getItem: (key: string) => values.get(key) ?? null,
-      setItem: (key: string, value: string) => values.set(key, value),
+  it('keeps multiple brands, statuses, sort and view mode', () => {
+    const saved = {
+      brands: ['ブランドA', 'ブランドB'],
+      playStatuses: ['playing', 'completed'],
+      sort: 'total_playtime',
+      descending: false,
+      viewMode: 'table',
+    };
+    expect(normalizeLibraryView(saved)).toEqual(saved);
+  });
+
+  it('drops unknown statuses, sorts and view modes', () => {
+    const saved = {
+      brands: ['A'],
+      playStatuses: ['playing', 'unknown'],
+      sort: 'unknown',
+      descending: true,
+      viewMode: 'carousel',
+    };
+    expect(normalizeLibraryView(saved)).toEqual({
+      ...defaultLibraryView,
+      brands: ['A'],
+      playStatuses: ['playing'],
     });
   });
 
-  afterEach(() => vi.unstubAllGlobals());
-
-  it('uses the existing defaults when no filters have been saved', () => {
-    expect(loadLibraryFilters()).toEqual(defaults);
-  });
-
-  it('restores all filters and ascending sort on subsequent loads', () => {
-    const filters: LibraryFilters = {
-      search: 'タイトル | 続編',
-      brand: 'ブランド名',
-      playStatus: 'playing',
-      sort: 'total_playtime',
+  it('removes blank and duplicate brands', () => {
+    const saved = {
+      brands: ['A', '  ', 'A', 'B'],
+      playStatuses: ['playing', 'playing'],
+      sort: 'title',
       descending: false,
+      viewMode: 'list',
     };
-    saveLibraryFilters(filters);
-    expect(loadLibraryFilters()).toEqual(filters);
-    expect(loadLibraryFilters()).toEqual(filters);
+    expect(normalizeLibraryView(saved)).toEqual({
+      brands: ['A', 'B'],
+      playStatuses: ['playing'],
+      sort: 'title',
+      descending: false,
+      viewMode: 'list',
+    });
   });
 
-  it('keeps cleared filters and the latest sort direction', () => {
-    saveLibraryFilters({ ...defaults, search: '検索', brand: 'ブランド', playStatus: 'completed' });
-    saveLibraryFilters({ ...defaults, sort: 'title', descending: false });
-    expect(loadLibraryFilters()).toEqual({ ...defaults, sort: 'title', descending: false });
-  });
-
-  it('defaults missing or invalid fields while preserving valid ones', () => {
-    values.set(
-      'library-filters',
-      JSON.stringify({
-        search: '検索',
-        brand: 42,
-        playStatus: 'unknown',
-        sort: 'unknown',
-        descending: 'false',
-      }),
-    );
-    expect(loadLibraryFilters()).toEqual({ ...defaults, search: '検索' });
-    values.set('library-filters', JSON.stringify({ sort: 'session_count' }));
-    expect(loadLibraryFilters()).toEqual({ ...defaults, sort: 'session_count' });
-  });
-
-  it.each(['invalid JSON', 'null', '[]', 'true', '42', '"text"'])(
-    'uses defaults for malformed saved data: %s',
+  it.each([null, '[]', 'true', '42', '"text"', []])(
+    'falls back to defaults for malformed saved data: %s',
     (saved) => {
-      values.set('library-filters', saved);
-      expect(loadLibraryFilters()).toEqual(defaults);
+      expect(normalizeLibraryView(saved)).toEqual(defaultLibraryView);
     },
   );
 
-  it('allows filtering even when storage access fails', () => {
-    vi.stubGlobal('localStorage', {
-      getItem: () => {
-        throw new Error('Storage unavailable');
-      },
-      setItem: () => {
-        throw new Error('Storage full');
-      },
-    });
-    expect(loadLibraryFilters()).toEqual(defaults);
-    expect(() => saveLibraryFilters(defaults)).not.toThrow();
+  it('adds and removes a selection, where an empty list means all', () => {
+    expect(toggleValue<string>([], 'A')).toEqual(['A']);
+    expect(toggleValue(['A'], 'B')).toEqual(['A', 'B']);
+    expect(toggleValue(['A', 'B'], 'A')).toEqual(['B']);
   });
 });

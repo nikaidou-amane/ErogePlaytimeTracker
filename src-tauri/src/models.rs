@@ -160,6 +160,61 @@ pub struct UpdateGameInput {
     pub release_date: Option<String>,
     pub source_url: Option<String>,
 }
+/// ライブラリ画面の絞り込み・並び順・表示形式。再起動後も同じ見た目に戻すため
+/// settings テーブルへ JSON で保存する。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LibraryView {
+    pub brands: Vec<String>,
+    pub play_statuses: Vec<String>,
+    pub sort: String,
+    pub descending: bool,
+    pub view_mode: String,
+}
+impl Default for LibraryView {
+    fn default() -> Self {
+        Self {
+            brands: vec![],
+            play_statuses: vec![],
+            sort: "last_played".into(),
+            descending: true,
+            view_mode: "grid".into(),
+        }
+    }
+}
+impl LibraryView {
+    /// 未知の status・sort・表示形式を既定値に寄せ、重複したブランド名を落とす。
+    /// 壊れた保存値で画面が空にならないようにするための正規化。
+    pub fn normalized(mut self) -> Self {
+        const SORTS: [&str; 7] = [
+            "title",
+            "brand",
+            "release_date",
+            "created_at",
+            "total_playtime",
+            "last_played",
+            "session_count",
+        ];
+        const STATUSES: [&str; 4] = ["unplayed", "playing", "completed", "retired"];
+        const VIEWS: [&str; 3] = ["grid", "list", "table"];
+        self.play_statuses
+            .retain(|status| STATUSES.contains(&status.as_str()));
+        let mut seen = std::collections::HashSet::new();
+        self.play_statuses
+            .retain(|status| seen.insert(status.clone()));
+        if !SORTS.contains(&self.sort.as_str()) {
+            self.sort = "last_played".into();
+        }
+        if !VIEWS.contains(&self.view_mode.as_str()) {
+            self.view_mode = "grid".into();
+        }
+        self.brands.retain(|brand| !brand.trim().is_empty());
+        let mut seen_brands = std::collections::HashSet::new();
+        self.brands
+            .retain(|brand| seen_brands.insert(brand.clone()));
+        self
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSettings {

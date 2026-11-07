@@ -16,6 +16,7 @@ import type {
   MetadataIdentity,
   Session,
   Settings,
+  LibraryView,
   PlayStatus,
   SortKey,
   StatisticsPeriodInput,
@@ -42,18 +43,20 @@ export const api = {
     command<void>('delete_tracking_pause_interval', { id, expectedUpdatedAt }),
   listGames: (
     search = '',
-    brand = '',
-    playStatus = '',
+    brands: string[] = [],
+    playStatuses: PlayStatus[] = [],
     sort: SortKey = 'last_played',
     descending = true,
   ) =>
     command<GameSummary[]>('list_games', {
       search,
-      brand: brand || null,
-      playStatus: playStatus || null,
+      brands,
+      playStatuses,
       sort,
       descending,
     }),
+  libraryView: () => command<LibraryView>('get_library_view'),
+  setLibraryView: (view: LibraryView) => command<void>('set_library_view', { view }),
   listBrands: () => command<string[]>('list_brands'),
   getGame: (id: number) => command<GameDetail>('get_game', { id }),
   createGame: (input: {

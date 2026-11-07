@@ -2,18 +2,27 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api';
   import { userErrorMessage } from '../lib/errors';
-  import { loadLibraryFilters, saveLibraryFilters } from '../lib/libraryFilters';
+  import { defaultLibraryView, normalizeLibraryView, toggleValue } from '../lib/libraryFilters';
   import { duration, lastPlayed, imageSrc, playStatusLabel, playStatusOptions } from '../lib/time';
-  import type { GameSummary } from '../lib/types';
-  type ViewMode = 'grid' | 'list' | 'table';
+  import type {
+    GameSummary,
+    LibraryView,
+    LibraryViewMode,
+    PlayStatus,
+    SortKey,
+  } from '../lib/types';
   export let refresh = 0;
   export let openGame: (id: number) => void;
-  let { search, brand, playStatus, sort, descending } = loadLibraryFilters();
+  let view: LibraryView = { ...defaultLibraryView };
+  let search = '';
+  let brands: string[] = [];
   let games: GameSummary[] = [],
     error = '',
-    viewMode: ViewMode = 'grid';
+    loaded = false;
   let loadedKey = '';
-  $: saveLibraryFilters({ search, brand, playStatus, sort, descending });
+  let brandMenuOpen = false;
+  let statusMenuOpen = false;
+  $: viewMode = view.viewMode;
   $: totalPlaytimeSeconds = games.reduce((total, game) => total + game.total_playtime_seconds, 0);
   $: maximumPlaytimeSeconds = games.reduce(
     (maximum, game) => Math.max(maximum, game.total_playtime_seconds),
@@ -21,23 +30,56 @@
   );
   async function load() {
     try {
-      games = await api.listGames(search, brand, playStatus, sort, descending);
+      games = await api.listGames(
+        search,
+        view.brands,
+        view.playStatuses,
+        view.sort,
+        view.descending,
+      );
     } catch (e) {
       error = userErrorMessage(e, 'ライブラリを読み込めませんでした。');
     }
   }
   $: {
-    const key = JSON.stringify([refresh, search, brand, playStatus, sort, descending]);
-    if (key !== loadedKey) {
+    const key = JSON.stringify([
+      refresh,
+      search,
+      view.brands,
+      view.playStatuses,
+      view.sort,
+      view.descending,
+    ]);
+    if (loaded && key !== loadedKey) {
       loadedKey = key;
       load();
     }
   }
-  let brands: string[] = [];
-  $: brandOptions = brand && !brands.includes(brand) ? [brand, ...brands] : brands;
+  $: if (loaded && view) persist();
+  let savedJson = '';
+  function persist() {
+    const next = JSON.stringify(view);
+    if (next === savedJson) return;
+    savedJson = next;
+    api.setLibraryView(view).catch((e) => {
+      error = userErrorMessage(e, '表示設定を保存できませんでした。');
+    });
+  }
+  $: brandOptions = brands;
   onMount(() => {
-    const saved = localStorage.getItem('library-view-mode');
-    if (saved === 'grid' || saved === 'list' || saved === 'table') viewMode = saved;
+    api
+      .libraryView()
+      .then((saved) => {
+        view = normalizeLibraryView(saved);
+        savedJson = JSON.stringify(view);
+      })
+      .catch((e) => {
+        error = userErrorMessage(e, '表示設定を読み込めませんでした。');
+      })
+      .then(() => {
+        loaded = true;
+        loadedKey = '';
+      });
     api
       .listBrands()
       .then((value) => (brands = value))
@@ -45,9 +87,11 @@
     const timer = setInterval(load, 1000);
     return () => clearInterval(timer);
   });
-  function setViewMode(mode: ViewMode) {
-    viewMode = mode;
-    localStorage.setItem('library-view-mode', mode);
+  function setViewMode(mode: LibraryViewMode) {
+    view = { ...view, viewMode: mode };
+  }
+  function selectSort(value: SortKey) {
+    view = { ...view, sort: value };
   }
   async function launch(gameId: number) {
     try {
@@ -70,19 +114,81 @@
       placeholder="ゲームタイトルを入力"
       bind:value={search}
     /></label
-  ><label
-    ><span>ブランド</span><select bind:value={brand}
-      ><option value="">すべてのブランド</option>{#each brandOptions as b}<option>{b}</option
-        >{/each}</select
-    ></label
-  ><label
-    ><span>プレイ状況</span><select bind:value={playStatus}
-      ><option value="">すべての状況</option>{#each playStatusOptions as option}<option
-          value={option.value}>{option.label}</option
-        >{/each}</select
-    ></label
-  ><label
-    ><span>並び順</span><select bind:value={sort}
+  >
+  <div class="filter-control" class:open={brandMenuOpen}>
+    <span>ブランド</span>
+    <button
+      type="button"
+      class="filter-trigger"
+      aria-expanded={brandMenuOpen}
+      onclick={() => {
+        brandMenuOpen = !brandMenuOpen;
+        statusMenuOpen = false;
+      }}>{view.brands.length ? `${view.brands.length}件選択` : 'すべてのブランド'}</button
+    >
+    {#if brandMenuOpen}
+      <div class="filter-menu">
+        <button
+          type="button"
+          class="filter-all"
+          onclick={() => {
+            view = { ...view, brands: [] };
+            brandMenuOpen = false;
+          }}>すべてのブランド</button
+        >
+        {#each brandOptions as b}
+          <label class="filter-option"
+            ><input
+              type="checkbox"
+              checked={view.brands.includes(b)}
+              onchange={() => (view = { ...view, brands: toggleValue(view.brands, b) })}
+            /><span>{b}</span></label
+          >
+        {/each}
+      </div>
+    {/if}
+  </div>
+  <div class="filter-control" class:open={statusMenuOpen}>
+    <span>プレイ状況</span>
+    <button
+      type="button"
+      class="filter-trigger"
+      aria-expanded={statusMenuOpen}
+      onclick={() => {
+        statusMenuOpen = !statusMenuOpen;
+        brandMenuOpen = false;
+      }}>{view.playStatuses.length ? `${view.playStatuses.length}件選択` : 'すべての状況'}</button
+    >
+    {#if statusMenuOpen}
+      <div class="filter-menu">
+        <button
+          type="button"
+          class="filter-all"
+          onclick={() => {
+            view = { ...view, playStatuses: [] };
+            statusMenuOpen = false;
+          }}>すべての状況</button
+        >
+        {#each playStatusOptions as option}
+          <label class="filter-option"
+            ><input
+              type="checkbox"
+              checked={view.playStatuses.includes(option.value)}
+              onchange={() =>
+                (view = {
+                  ...view,
+                  playStatuses: toggleValue(view.playStatuses, option.value),
+                })}
+            /><span>{option.label}</span></label
+          >
+        {/each}
+      </div>
+    {/if}
+  </div>
+  <label
+    ><span>並び順</span><select
+      value={view.sort}
+      onchange={(event) => selectSort((event.currentTarget as HTMLSelectElement).value as SortKey)}
       ><option value="last_played">最終プレイ</option><option value="total_playtime"
         >プレイ時間</option
       ><option value="title">タイトル</option><option value="brand">ブランド</option><option
@@ -90,7 +196,9 @@
       ><option value="created_at">登録日</option><option value="session_count">セッション数</option
       ></select
     ></label
-  ><button onclick={() => (descending = !descending)}>{descending ? '降順' : '昇順'}</button>
+  ><button onclick={() => (view = { ...view, descending: !view.descending })}
+    >{view.descending ? '降順' : '昇順'}</button
+  >
   <div class="view-control">
     <span>表示形式</span>
     <div class="view-switch" aria-label="ライブラリの表示形式">

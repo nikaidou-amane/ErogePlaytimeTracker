@@ -1,22 +1,6 @@
-import type { PlayStatus, SortKey } from './types';
+import type { LibraryView, LibraryViewMode, PlayStatus, SortKey } from './types';
 
-export interface LibraryFilters {
-  search: string;
-  brand: string;
-  playStatus: PlayStatus | '';
-  sort: SortKey;
-  descending: boolean;
-}
-
-const storageKey = 'library-filters';
-const defaults: LibraryFilters = {
-  search: '',
-  brand: '',
-  playStatus: '',
-  sort: 'last_played',
-  descending: true,
-};
-const sortKeys: SortKey[] = [
+export const sortKeys: SortKey[] = [
   'title',
   'brand',
   'release_date',
@@ -25,29 +9,42 @@ const sortKeys: SortKey[] = [
   'last_played',
   'session_count',
 ];
-const playStatuses: PlayStatus[] = ['unplayed', 'playing', 'completed', 'retired'];
+export const playStatuses: PlayStatus[] = ['unplayed', 'playing', 'completed', 'retired'];
+export const viewModes: LibraryViewMode[] = ['grid', 'list', 'table'];
 
-export function loadLibraryFilters(): LibraryFilters {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem(storageKey) ?? '{}');
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...defaults };
-    const saved = value as Record<string, unknown>;
-    return {
-      search: typeof saved.search === 'string' ? saved.search : defaults.search,
-      brand: typeof saved.brand === 'string' ? saved.brand : defaults.brand,
-      playStatus: playStatuses.find((status) => status === saved.playStatus) ?? defaults.playStatus,
-      sort: sortKeys.find((key) => key === saved.sort) ?? defaults.sort,
-      descending: typeof saved.descending === 'boolean' ? saved.descending : defaults.descending,
-    };
-  } catch {
-    return { ...defaults };
+export const defaultLibraryView: LibraryView = {
+  brands: [],
+  playStatuses: [],
+  sort: 'last_played',
+  descending: true,
+  viewMode: 'grid',
+};
+
+/** 未知の値や型違いが混ざっていても画面が開けるよう既定値へ寄せる。 */
+export function normalizeLibraryView(value: unknown): LibraryView {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { ...defaultLibraryView };
   }
+  const saved = value as Record<string, unknown>;
+  const brands = Array.isArray(saved.brands)
+    ? saved.brands.filter(
+        (brand): brand is string => typeof brand === 'string' && brand.trim() !== '',
+      )
+    : [];
+  const statuses = Array.isArray(saved.playStatuses)
+    ? playStatuses.filter((status) => (saved.playStatuses as unknown[]).includes(status))
+    : [];
+  return {
+    brands: Array.from(new Set(brands)),
+    playStatuses: Array.from(new Set(statuses)),
+    sort: sortKeys.find((key) => key === saved.sort) ?? defaultLibraryView.sort,
+    descending:
+      typeof saved.descending === 'boolean' ? saved.descending : defaultLibraryView.descending,
+    viewMode: viewModes.find((mode) => mode === saved.viewMode) ?? defaultLibraryView.viewMode,
+  };
 }
 
-export function saveLibraryFilters(filters: LibraryFilters) {
-  try {
-    localStorage.setItem(storageKey, JSON.stringify(filters));
-  } catch {
-    // Filtering remains usable when browser storage is unavailable.
-  }
+/** 選択の追加・解除。空配列は「すべて」を意味する。 */
+export function toggleValue<T>(values: T[], value: T): T[] {
+  return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
 }

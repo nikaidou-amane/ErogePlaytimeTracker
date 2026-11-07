@@ -102,21 +102,23 @@ fn known_error_message(detail: &str) -> Option<&str> {
 pub fn list_games(
     state: State<AppState>,
     search: String,
-    brand: Option<String>,
-    play_status: Option<String>,
+    brands: Vec<String>,
+    play_statuses: Vec<String>,
     sort: String,
     descending: bool,
 ) -> Cmd<Vec<GameSummary>> {
     state
         .db
-        .list_games(
-            &search,
-            brand.as_deref(),
-            play_status.as_deref(),
-            &sort,
-            descending,
-        )
+        .list_games(&search, &brands, &play_statuses, &sort, descending)
         .map_err(err)
+}
+#[tauri::command]
+pub fn get_library_view(state: State<AppState>) -> Cmd<LibraryView> {
+    state.db.library_view().map_err(err)
+}
+#[tauri::command]
+pub fn set_library_view(state: State<AppState>, view: LibraryView) -> Cmd<()> {
+    state.db.set_library_view(&view).map_err(err)
 }
 #[tauri::command]
 pub fn list_brands(state: State<AppState>) -> Cmd<Vec<String>> {
