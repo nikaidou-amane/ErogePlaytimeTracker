@@ -997,10 +997,12 @@ header > nav {
   background: var(--panel, #1a1822);
   box-shadow: 0 8px 24px #0007;
 }
-.filter-option,
+/* toolbar 内の label は grid だが、チェックボックス付きの選択肢は
+   チェックボックスと文字を同じ行に並べたいので強制的に flex にする。
+   `.toolbar label` より優先度を上げるため `.toolbar` を付ける。 */
+.toolbar .filter-option,
 .filter-all {
   display: flex;
-  /* チェックボックスを先頭に置き、ラベルと同じ行に並べる。 */
   flex-direction: row;
   align-items: center;
   justify-content: flex-start;
@@ -1026,10 +1028,21 @@ header > nav {
   margin: 0;
   order: -1;
 }
-.filter-option > span {
+/* `.toolbar label > span` の 12px グレーを選択肢の文字には適用しない。
+   選択肢の文字は「すべてxx」と同じ見た目にする。
+   `.toolbar input { flex: 1 }` も効かないよう、チェックボックスは固定サイズにする。 */
+.toolbar .filter-option > span {
   flex: 1 1 auto;
   min-width: 0;
+  color: inherit;
   font-size: inherit;
+  /* 小書き仮名を含む行でも高さを揃え、行の高さがばらつかないようにする。 */
+  line-height: 1.4;
+}
+.toolbar .filter-option > input {
+  flex: 0 0 auto;
+  width: 13px;
+  min-width: 0;
 }
 /* 選択肢の文字が「すべてxx」と左端で揃うよう、同じ幅の空きを確保する。 */
 .filter-all {
