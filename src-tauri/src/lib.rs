@@ -45,6 +45,20 @@ impl AppState {
 }
 pub fn run() {
     tauri::Builder::default()
+        // 単一起動を最も早い段階で確定させる。二重起動側はここで終了し、
+        // 既に動いているウィンドウを前面に出す。ただし自動起動からの起動は
+        // ログイン時に画面を遮らないため、ウィンドウを出さない。
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            let launched_by_autostart = args.iter().any(|argument| argument == "--autostart");
+            if launched_by_autostart {
+                return;
+            }
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .manage(startup::restart_environment(tauri::Env::default()))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
